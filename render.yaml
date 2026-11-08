@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: football-ai
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: GROQ_API_KEY_1
+        sync: false
+      - key: GROQ_API_KEY_2
+        sync: false
+      - key: GROQ_API_KEY_3
+        sync: false
+      - key: FOOTBALL_API_KEY
+        sync: false
+      - key: GROQ_MODEL_1
+        value: llama-3.3-70b-versatile
+      - key: GROQ_MODEL_2
+        value: llama-3.3-70b-versatile
+      - key: GROQ_MODEL_3
+        value: llama-3.3-70b-versatile

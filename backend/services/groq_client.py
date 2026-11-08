@@ -1,0 +1,97 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+from typing import Optional
+
+import httpx
+
+from errors import AgentOutputError, GroqAuthError, GroqRateLimitError, GroqServiceError
+
+
+def extract_json(text: str) -> dict:
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        data = json.loads(text[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("expected a JSON object")
+    return data
+
+
+class GroqClient:
+    """One client per agent: separate API key, model and HTTP session."""
+
+    def __init__(
+        self,
+        name: str,
+        api_key: str,
+        model: str,
+        base_url: str = "https://api.groq.com/openai/v1",
+        timeout: float = 60.0,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
+        sleep=asyncio.sleep,
+        max_retries: int = 2,
+    ):
+        self.name, self.model = name, model
+        self._sleep, self._max_retries = sleep, max_retries
+        self._http = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=timeout,
+            headers={"Authorization": f"Bearer {api_key}"},
+            transport=transport,
+        )
+
+    async def aclose(self) -> None:
+        await self._http.aclose()
+
+    async def chat_json(self, system: str, user: str, *, temperature: float = 0.2, max_tokens: int = 3500) -> dict:
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        attempt = 0
+        while True:
+            try:
+                resp = await self._http.post("/chat/completions", json=payload)
+            except httpx.TimeoutException as exc:
+                raise GroqServiceError("Groq request timed out.", agent=self.name) from exc
+            except httpx.HTTPError as exc:
+                raise GroqServiceError(f"Could not reach Groq: {exc}", agent=self.name) from exc
+
+            code = resp.status_code
+            if code in (401, 403):
+                raise GroqAuthError(f"The Groq API key for {self.name} was rejected.", agent=self.name)
+            if code == 429 or code >= 500:
+                if attempt < self._max_retries:
+                    wait = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                    await self._sleep(min(wait, 20))
+                    attempt += 1
+                    continue
+                if code == 429:
+                    raise GroqRateLimitError(
+                        f"Groq rate limit reached for {self.name}. Wait a minute or use a model with higher limits.",
+                        agent=self.name,
+                    )
+                raise GroqServiceError(f"Groq returned HTTP {code}.", agent=self.name)
+            if code >= 400:
+                try:
+                    detail = resp.json()["error"]["message"]
+                except Exception:  # noqa: BLE001
+                    detail = resp.text[:200]
+                raise GroqServiceError(f"Groq rejected the request for {self.name}: {detail}", agent=self.name)
+            break
+
+        try:
+            content = resp.json()["choices"][0]["message"]["content"]
+            return extract_json(content)
+        except (KeyError, IndexError, ValueError) as exc:
+            raise AgentOutputError(f"{self.name} did not return valid JSON.", agent=self.name) from exc
