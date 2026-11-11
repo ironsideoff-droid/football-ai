@@ -21,6 +21,7 @@ from errors import (
     FootballRateLimitError,
 )
 from football_data.fixtures import normalize_fixtures, normalize_match
+from football_data.source_manager import api_source, assess_quality
 from football_data.statistics import extract_standings, summarize_h2h, summarize_team_matches
 from schemas.match import MatchContext, MatchSummary
 
@@ -41,6 +42,9 @@ class FootballProvider(ABC):
 
     @abstractmethod
     async def get_match_context(self, match_id: int) -> MatchContext: ...
+
+    async def get_competition_results(self, competition_code: str) -> list[dict]:
+        raise FootballDataError("This football data provider cannot list competition results.")
 
     async def aclose(self) -> None:  # optional
         return None
@@ -126,16 +130,36 @@ class FootballDataOrgProvider(FootballProvider):
             availability[name] = f"unavailable: {res.message if isinstance(res, AppError) else res}" if isinstance(res, BaseException) else "available"
 
         ok = lambda r: not isinstance(r, BaseException)  # noqa: E731
+        base = str(self._http.base_url).rstrip("/")
+        endpoints = (
+            ("match", "football-data.org match", f"/matches/{match_id}", raw),
+            ("h2h", "football-data.org head-to-head", f"/matches/{match_id}/head2head", h2h_raw),
+            ("home_matches", "football-data.org home team results", f"/teams/{hid}/matches", home_raw),
+            ("away_matches", "football-data.org away team results", f"/teams/{aid}/matches", away_raw),
+            ("standings", "football-data.org standings", f"/competitions/{code}/standings", stand_raw),
+        )
+        sources = [
+            api_source(sid, name, base + path, "ok" if ok(res) and res != {} else "failed",
+                       None if ok(res) and res != {} else (res.message if isinstance(res, AppError) else "no data"))
+            for sid, name, path, res in endpoints
+        ]
         before = match.utc_date
         standings = extract_standings(stand_raw, hid, aid) if ok(stand_raw) and stand_raw else None
         if ok(stand_raw) and standings is None:
             availability["standings"] = "unavailable: no league table for this competition (e.g. cup or group stage)"
-        return MatchContext(
+        context = MatchContext(
             match=match,
             standings=standings,
             home_form=summarize_team_matches(hid, match.home.name, home_raw.get("matches", []), before) if ok(home_raw) else None,
             away_form=summarize_team_matches(aid, match.away.name, away_raw.get("matches", []), before) if ok(away_raw) else None,
             head_to_head=summarize_h2h(hid, aid, h2h_raw.get("matches", [])) if ok(h2h_raw) else None,
             data_availability=availability,
+            sources=sources,
             retrieved_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
         )
+        context.data_quality = assess_quality(context)
+        return context
+
+    async def get_competition_results(self, competition_code: str) -> list[dict]:
+        data = await self._get(f"/competitions/{competition_code}/matches", {"status": "FINISHED"})
+        return sorted(data.get("matches", []), key=lambda m: m.get("utcDate", ""))

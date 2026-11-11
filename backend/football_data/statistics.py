@@ -1,6 +1,7 @@
 """Deterministic statistics computed from raw provider data (no LLM involved)."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 
 from schemas.match import (
@@ -11,6 +12,10 @@ from schemas.match import (
     StandingsContext,
     TeamForm,
 )
+
+
+def _parse(iso: str) -> datetime:
+    return datetime.fromisoformat(iso.replace("Z", "+00:00"))
 
 
 def _score(match: dict) -> Optional[tuple[int, int]]:
@@ -63,6 +68,12 @@ def summarize_team_matches(
         )
     played = overall.played
     points = overall.won * 3 + overall.drawn
+    last_date = last[-1]["utcDate"] if last else None
+    rest_days = congestion = None
+    if last_date:
+        kickoff = _parse(before_iso)
+        rest_days = round((kickoff - _parse(last_date)).total_seconds() / 86400, 1)
+        congestion = sum(1 for m in finished if 0 < (kickoff - _parse(m["utcDate"])).days <= 30)
     return TeamForm(
         team=team_name,
         matches_considered=played,
@@ -77,6 +88,9 @@ def summarize_team_matches(
         failed_to_score=failed,
         sequence_oldest_to_newest="".join(r.result for r in recent),
         recent_matches=recent,
+        last_match_date=last_date,
+        rest_days=rest_days,
+        matches_last_30_days=congestion or 0,
     )
 
 
@@ -134,9 +148,21 @@ def extract_standings(data: dict, home_id: int, away_id: int) -> Optional[Standi
     total = by_type.get("TOTAL") or []
     if not total:
         return None
+    home_tbl, away_tbl = by_type.get("HOME") or [], by_type.get("AWAY") or []
+    team_games = sum(r.get("playedGames", 0) for r in total)
+    total_goals = sum(r.get("goalsFor", 0) for r in total)
+    hg, hp = sum(r.get("goalsFor", 0) for r in home_tbl), sum(r.get("playedGames", 0) for r in home_tbl)
+    ag, ap = sum(r.get("goalsFor", 0) for r in away_tbl), sum(r.get("playedGames", 0) for r in away_tbl)
     return StandingsContext(
         competition=(data.get("competition") or {}).get("name"),
         table_size=len(total),
+        league_games=team_games // 2,
+        league_total_goals=total_goals,
+        league_avg_goals_per_team=round(total_goals / team_games, 4) if team_games else None,
+        league_avg_home_goals=round(hg / hp, 4) if hp else None,
+        league_avg_away_goals=round(ag / ap, 4) if ap else None,
+        league_home_goals_total=hg,
+        league_away_goals_total=ag,
         home_team_overall=_row(total, home_id),
         away_team_overall=_row(total, away_id),
         home_team_at_home=_row(by_type.get("HOME") or [], home_id),

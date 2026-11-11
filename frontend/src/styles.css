@@ -13,7 +13,7 @@ button, select { font: inherit; color: inherit; }
 .top { margin-bottom: 28px; }
 .wordmark { font: 700 clamp(2.6rem, 8vw, 4.4rem)/0.95 var(--display); letter-spacing: 0.02em; margin: 0; }
 .tagline { color: var(--muted); margin: 8px 0 0; }
-main { display: grid; gap: 20px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
 
 .panel { background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 22px; }
 h2, h3 { font: 700 1.6rem/1.1 var(--display); margin: 0 0 14px; letter-spacing: 0.01em; }
@@ -95,3 +95,37 @@ select { background: var(--panel-2); border: 1px solid var(--rule); border-radiu
   .matchline { grid-template-columns: 1fr; justify-items: center; text-align: center; }
   .team, .team.away { flex-direction: row; justify-content: center; }
 }
+
+/* 2.0 additions */
+.panel > summary { cursor: pointer; font: 700 1.6rem/1.1 var(--display); }
+details.panel[open] > summary { margin-bottom: 14px; }
+.analyze.secondary { background: transparent; color: var(--chalk); border: 1px solid var(--rule); margin-top: 12px; }
+.analyze.secondary:disabled { color: var(--muted); }
+.sim-head { margin: 0 0 4px; font-size: 1.05rem; }
+.chip { display: inline-block; padding: 1px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--rule); font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
+.chip.applied, .chip.claim-confirmed_fact { color: var(--teal); border-color: var(--teal); }
+.chip.capped, .chip.claim-credible_report { color: var(--amber); border-color: var(--amber); }
+.chip.ignored, .chip.claim-rumour, .chip.claim-unverified, .chip.sev-critical { color: var(--bad); border-color: var(--bad); }
+.chip.sev-warning { color: var(--amber); border-color: var(--amber); }
+.scenarios { display: grid; gap: 12px; }
+.scenario { background: var(--panel-2); border-radius: 8px; padding: 14px 16px; }
+.scenario header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.scenario h4 { margin: 0; font-size: 1.05rem; }
+.scenario p { margin: 6px 0; } .scenario ul { margin: 4px 0 0; padding-left: 20px; color: var(--muted); }
+.bar-track.wide { display: block; height: 8px; margin: 8px 0; }
+.probbar.mini { height: 26px; margin-top: 8px; font-size: 0.85rem; }
+.gridwrap { overflow-x: auto; }
+.scoregrid { border-collapse: separate; border-spacing: 2px; font-size: 0.8rem; margin: 6px 0; }
+.scoregrid th { color: var(--muted); font-weight: 500; padding: 2px 6px; text-align: center; }
+.scoregrid th.corner { text-align: left; font-size: 0.72rem; white-space: nowrap; }
+.scoregrid td { width: 38px; height: 30px; text-align: center; border-radius: 4px; background: var(--panel-2); color: var(--chalk); }
+.ptable { border-collapse: collapse; width: 100%; max-width: 560px; font-size: 0.9rem; margin: 6px 0; }
+.ptable th, .ptable td { text-align: left; padding: 5px 10px 5px 0; border-bottom: 1px solid var(--rule); font-weight: 400; }
+.ptable thead th { color: var(--muted); font-size: 0.8rem; }
+.adjust { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 6px; font-size: 0.9rem; }
+.findings { list-style: none; padding: 0; display: grid; gap: 10px; }
+.finding blockquote { margin: 6px 0 4px; padding-left: 12px; border-left: 2px solid var(--rule); color: var(--muted); font-style: italic; }
+a { color: var(--teal); }
+
+.panel { min-width: 0; }
+.prose, .scenario p, .finding { overflow-wrap: anywhere; }

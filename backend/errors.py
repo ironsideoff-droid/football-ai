@@ -52,3 +52,15 @@ class FootballDataError(AppError):
 
 class SimulationError(AppError):
     status_code, code = 500, "simulation_error"
+
+
+class InsufficientDataError(AppError):
+    status_code, code = 422, "insufficient_data"
+
+
+class StoreError(AppError):
+    status_code, code = 500, "prediction_store_error"
+
+
+class ImmutablePredictionError(AppError):
+    status_code, code = 409, "prediction_immutable"

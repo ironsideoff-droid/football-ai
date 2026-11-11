@@ -1,4 +1,4 @@
-import type { Health, Job, MatchSummary } from "../types";
+import type { Evaluation, Health, Job, MatchSummary } from "../types";
 
 export class ApiError extends Error {
   constructor(message: string, public code?: string, public agent?: string | null) {
@@ -27,3 +27,5 @@ export const getFixtures = (days = 7) =>
 export const startAnalysis = (matchId: number) =>
   request<{ job_id: string }>("/analyze/start", { method: "POST", body: JSON.stringify({ match_id: matchId }) });
 export const getJob = (jobId: string) => request<Job>(`/jobs/${jobId}`);
+export const getEvaluation = () => request<Evaluation>("/evaluation");
+export const refreshResults = () => request<{ results_recorded: number[] }>("/evaluation/refresh", { method: "POST" });

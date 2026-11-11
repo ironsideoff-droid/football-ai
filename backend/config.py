@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
-AGENT_NAMES = ("Researcher", "Tactical Analyst", "Chief Predictor")
+AGENT_NAMES = ("Statistical Researcher", "Football Intelligence", "Chief Predictor")
 
 
 @dataclass(frozen=True)
@@ -26,7 +26,11 @@ class Settings:
     groq_base_url: str = "https://api.groq.com/openai/v1"
     cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
     request_timeout: float = 60.0
-    pass_research_to_tactical: bool = False
+    news_enabled: bool = True
+    goal_model: str = "poisson"
+    dc_rho: float = -0.10
+    bp_share: float = 0.10
+    predictions_dir: str = "data_store"
 
     def agent(self, index: int) -> AgentConfig:
         return AgentConfig(AGENT_NAMES[index], self.groq_keys[index], self.groq_models[index])
@@ -50,5 +54,9 @@ def load_settings() -> Settings:
         groq_keys=keys,  # type: ignore[arg-type]
         groq_models=models,  # type: ignore[arg-type]
         football_api_key=(env("FOOTBALL_API_KEY") or "").strip(),
-        pass_research_to_tactical=(env("PASS_RESEARCH_TO_TACTICAL", "false").lower() == "true"),
+        news_enabled=(env("NEWS_ENABLED", "true").lower() != "false"),
+        goal_model=(env("GOAL_MODEL") or "poisson").strip().lower() if (env("GOAL_MODEL") or "poisson").strip().lower() in ("poisson", "dixon_coles", "bivariate") else "poisson",
+        dc_rho=float(env("DC_RHO") or -0.10),
+        bp_share=float(env("BP_SHARE") or 0.10),
+        predictions_dir=(env("PREDICTIONS_DIR") or str(Path(__file__).resolve().parent / "data_store")),
     )

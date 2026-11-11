@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -12,12 +13,16 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from agents.chief_predictor import ChiefPredictorAgent
-from agents.researcher import ResearcherAgent
-from agents.tactical_analyst import TacticalAnalystAgent
+from agents.football_intelligence import FootballIntelligenceAgent
+from agents.statistical_researcher import StatisticalResearcherAgent
 from config import AGENT_NAMES, Settings, load_settings
 from errors import AppError, ConfigError
 from football_data.provider import FootballDataOrgProvider, FootballProvider
+from evaluation import backtesting, metrics
+from evaluation.store import PredictionStore
+from football_data.news import DisabledNews, GoogleNewsRssProvider, NewsProvider
 from services.groq_client import GroqClient
+from simulation.goal_model import GoalModelConfig
 from services.jobs import JobStore
 from services.orchestrator import Orchestrator
 
@@ -30,9 +35,11 @@ def create_app(
     settings: Optional[Settings] = None,
     provider: Optional[FootballProvider] = None,
     orchestrator: Optional[Orchestrator] = None,
+    store: Optional[PredictionStore] = None,
 ) -> FastAPI:
     settings = settings or load_settings()
-    state: dict = {"provider": provider, "orchestrator": orchestrator, "clients": []}
+    store = store or PredictionStore(settings.predictions_dir)
+    state: dict = {"provider": provider, "orchestrator": orchestrator, "clients": [], "news": None}
     jobs = JobStore()
 
     def get_provider() -> FootballProvider:
@@ -43,6 +50,11 @@ def create_app(
                 settings.football_api_key, settings.football_base_url, settings.request_timeout
             )
         return state["provider"]
+
+    def get_news() -> NewsProvider:
+        if state["news"] is None:
+            state["news"] = GoogleNewsRssProvider(timeout=15.0) if settings.news_enabled else DisabledNews()
+        return state["news"]
 
     def get_orchestrator() -> Orchestrator:
         if state["orchestrator"] is None:
@@ -56,10 +68,12 @@ def create_app(
             state["clients"] = clients
             state["orchestrator"] = Orchestrator(
                 get_provider(),
-                ResearcherAgent(clients[0]),
-                TacticalAnalystAgent(clients[1]),
+                StatisticalResearcherAgent(clients[0]),
+                FootballIntelligenceAgent(clients[1]),
                 ChiefPredictorAgent(clients[2]),
-                settings.pass_research_to_tactical,
+                news=get_news(),
+                store=store,
+                goal_cfg=GoalModelConfig(model=settings.goal_model, dc_rho=settings.dc_rho, bp_share=settings.bp_share),  # type: ignore[arg-type]
             )
         return state["orchestrator"]
 
@@ -70,6 +84,8 @@ def create_app(
             await c.aclose()
         if state["provider"] is not None:
             await state["provider"].aclose()
+        if state["news"] is not None:
+            await state["news"].aclose()
 
     app = FastAPI(title="Football AI", lifespan=lifespan)
     app.add_middleware(
@@ -91,6 +107,8 @@ def create_app(
                 for i in range(3)
             ],
             "warnings": [warning] if warning else [],
+            "news_enabled": settings.news_enabled,
+            "goal_model": settings.goal_model,
         }
 
     @app.get("/api/fixtures")
@@ -125,6 +143,56 @@ def create_app(
     static = Path(__file__).resolve().parent / "static"
     if static.is_dir():  # production: serve the built React app from the same service
         app.mount("/", StaticFiles(directory=static, html=True), name="web")
+
+    def variant(rows: list[dict], prefix: str) -> list[dict]:
+        key = lambda k: f"{prefix}{k}"  # noqa: E731
+        return [{**r, "probs": r["sim_probs"] if prefix else r["probs"], "p_btts": r.get(key("p_btts")), "p_over_2_5": r.get(key("p_over_2_5"))}
+                for r in rows]
+
+    @app.get("/api/evaluation")
+    async def evaluation():
+        rows = store.joined()
+        preds = store.predictions()
+        freq = None
+        if rows:
+            outs = [metrics.outcome_of(r["actual"]["home"], r["actual"]["away"]) for r in rows]
+            freq = {k: max(outs.count(k) / len(outs), 1e-6) for k in ("home", "draw", "away")}
+        return {
+            "stored_predictions": len(preds), "evaluated": len(rows), "tampered_match_ids": store.verify(),
+            "chief_predictor": metrics.evaluate(rows), "simulation_only": metrics.evaluate(variant(rows, "sim_")),
+            "baseline_constant_frequencies": metrics.evaluate(metrics.baseline_records(rows, freq)) if freq else None,
+            "storage_note": "Predictions are stored once, in append-only files on this server's disk. On hosts with ephemeral disks (e.g. Render free plan) they are lost on redeploy.",
+        }
+
+    @app.post("/api/evaluation/refresh")
+    async def evaluation_refresh():
+        recorded = []
+        for p in store.predictions():
+            rec = p["record"]
+            if store.get_result(rec["match_id"]):
+                continue
+            if datetime.fromisoformat(rec["kickoff_utc"].replace("Z", "+00:00")) > datetime.now(timezone.utc):
+                continue
+            try:
+                ctx = await get_provider().get_match_context(rec["match_id"])
+            except AppError:
+                continue
+            m = ctx.match
+            if m.status == "FINISHED" and m.score_home is not None and m.score_away is not None:
+                if store.save_result(m.id, m.score_home, m.score_away):
+                    recorded.append(m.id)
+        return {"results_recorded": recorded}
+
+    @app.get("/api/predictions")
+    async def predictions():
+        return {"predictions": [{k: v for k, v in p["record"].items() if k != "score_matrix"} for p in store.predictions()]}
+
+    @app.get("/api/backtest")
+    async def backtest(competition: str = Query("PL", min_length=2, max_length=8)):
+        matches = await get_provider().get_competition_results(competition.upper())
+        report = await asyncio.to_thread(backtesting.walk_forward, matches)
+        report["competition"] = competition.upper()
+        return report
 
     return app
 

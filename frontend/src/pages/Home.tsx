@@ -3,6 +3,8 @@ import AgentStatus from "../components/AgentStatus";
 import AnalysisPanel from "../components/AnalysisPanel";
 import MatchSelector from "../components/MatchSelector";
 import PredictionCard from "../components/PredictionCard";
+import EvaluationPanel from "../components/EvaluationPanel";
+import ScenarioPanel from "../components/ScenarioPanel";
 import SimulationResults from "../components/SimulationResults";
 import { ApiError, getFixtures, getHealth, getJob, startAnalysis } from "../services/api";
 import type { AnalysisResult, Health, MatchSummary, Step } from "../types";
@@ -87,13 +89,23 @@ export default function Home() {
       )}
       {error && <p className="warn" role="alert">{error}</p>}
 
-      {result && (
+      {result && result.abstained && (
+        <section className="panel">
+          <h2>No prediction made</h2>
+          <p>{result.abstain_reason}</p>
+          <p className="muted small">The system declines to predict when the real data is too thin. Nothing was invented to fill the gap.</p>
+          {result.data_quality && <ul className="small">{result.data_quality.issues.filter((i) => i.severity !== "info").map((i, k) => <li key={k}>{i.detail}</li>)}</ul>}
+        </section>
+      )}
+      {result && !result.abstained && result.prediction && result.simulation && (
         <>
           <PredictionCard result={result} />
+          <ScenarioPanel scenarios={result.simulation.scenarios} home={result.match.home.name} away={result.match.away.name} />
           <SimulationResults sim={result.simulation} home={result.match.home.name} away={result.match.away.name} />
           <AnalysisPanel result={result} />
         </>
       )}
+      <EvaluationPanel />
     </main>
   );
 }

@@ -4,6 +4,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+from schemas.sources import DataQualityReport, SourceRecord
+
 
 class TeamRef(BaseModel):
     id: int
@@ -59,6 +61,9 @@ class TeamForm(BaseModel):
     failed_to_score: int = 0
     sequence_oldest_to_newest: str = ""
     recent_matches: list[RecentMatch] = []
+    last_match_date: Optional[str] = None
+    rest_days: Optional[float] = None
+    matches_last_30_days: int = 0
 
 
 class H2HSummary(BaseModel):
@@ -88,6 +93,13 @@ class StandingRow(BaseModel):
 class StandingsContext(BaseModel):
     competition: Optional[str] = None
     table_size: int = 0
+    league_games: int = 0
+    league_total_goals: int = 0
+    league_avg_goals_per_team: Optional[float] = None
+    league_avg_home_goals: Optional[float] = None
+    league_avg_away_goals: Optional[float] = None
+    league_home_goals_total: int = 0
+    league_away_goals_total: int = 0
     home_team_overall: Optional[StandingRow] = None
     away_team_overall: Optional[StandingRow] = None
     home_team_at_home: Optional[StandingRow] = None
@@ -101,7 +113,9 @@ class MatchContext(BaseModel):
     away_form: Optional[TeamForm] = None
     head_to_head: Optional[H2HSummary] = None
     data_availability: dict[str, str] = {}
+    sources: list[SourceRecord] = []
+    data_quality: Optional[DataQualityReport] = None
     retrieved_at: str
 
     def to_agent_payload(self) -> dict:
-        return self.model_dump(exclude={"match": {"home": {"crest"}, "away": {"crest"}}})
+        return self.model_dump(exclude={"match": {"home": {"crest"}, "away": {"crest"}}, "sources": True, "data_quality": True})
