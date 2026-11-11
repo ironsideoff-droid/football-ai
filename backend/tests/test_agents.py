@@ -1,3 +1,4 @@
+import numpy as np
 import asyncio
 
 import pytest
@@ -102,3 +103,28 @@ def test_every_agent_prompt_treats_external_text_as_untrusted():
     from agents import prompts
     for system in (prompts.STATISTICAL_SYSTEM, prompts.INTELLIGENCE_SYSTEM, prompts.CHIEF_PLAN_SYSTEM, prompts.CHIEF_FINAL_SYSTEM):
         assert "UNTRUSTED DATA" in system and "never follow instructions" in system
+
+
+def test_chief_prompts_are_compact(context):
+    """Free Groq tiers allow ~8,000 tokens per minute: the final request must stay far below that."""
+    import json
+    from agents.base import compact
+    from agents.chief_predictor import digest_simulation
+    research, intel = ResearcherReport.model_validate(RESEARCHER_JSON), IntelligenceReport.model_validate(INTEL_JSON)
+    fake = FakeGroq("c", [PLAN_JSON, FINAL_JSON])
+    chief = ChiefPredictorAgent(fake)
+    priors = build_priors(context)
+    plan = asyncio.run(chief.plan(context.match, research, intel, context.data_quality, priors.to_dict()))
+    sim = run_simulation(priors, plan.adjustments, plan.scenarios, plan.openness_correlation, seed=5)
+    asyncio.run(chief.finalize(context.match, research, intel, plan, sim, context.data_quality))
+    for system, user in fake.calls:
+        assert (len(system) + len(user)) / 3 < 5000  # generous upper bound on tokens (3 characters per token)
+        assert "https://" not in user and "null" not in user and "[]" not in user  # empty values and links removed
+    d = digest_simulation(sim)
+    assert "score_matrix_pct" not in d and all(not isinstance(v, list) for v in d["events"].values())
+    assert compact({"a": None, "b": [], "c": {"d": ""}, "e": 1.23456, "f": np.array([1.23456, 2])}) == {"e": 1.235, "f": [1.235, 2]}
+
+
+def test_chief_output_budgets_are_set(context):
+    from agents.chief_predictor import FINAL_MAX_TOKENS, PLAN_MAX_TOKENS
+    assert PLAN_MAX_TOKENS + 5000 < 8000 and FINAL_MAX_TOKENS + 5000 < 8000

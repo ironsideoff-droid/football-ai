@@ -10,6 +10,10 @@ import httpx
 from errors import AgentOutputError, GroqAuthError, GroqRateLimitError, GroqServiceError
 
 
+MIN_OUTPUT_TOKENS = 900  # below this a JSON report cannot be completed
+AGENT_INDEX = {"Statistical Researcher": 1, "Football Intelligence": 2, "Chief Predictor": 3}
+
+
 def extract_json(text: str) -> dict:
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     try:
@@ -47,6 +51,16 @@ class GroqClient:
             transport=transport,
         )
 
+    @staticmethod
+    def _too_large(resp: httpx.Response) -> Optional[tuple[int, int]]:
+        """(limit, requested) tokens when Groq says the request exceeds the tokens-per-minute limit of the model."""
+        try:
+            text = resp.json()["error"]["message"]
+        except Exception:  # noqa: BLE001
+            text = resp.text
+        found = re.search(r"Limit (\d+), Requested (\d+)", text)
+        return (int(found.group(1)), int(found.group(2))) if found and "too large" in text.lower() else None
+
     async def aclose(self) -> None:
         await self._http.aclose()
 
@@ -59,6 +73,7 @@ class GroqClient:
             "response_format": {"type": "json_object"},
         }
         attempt = 0
+        adapted = False
         while True:
             try:
                 resp = await self._http.post("/chat/completions", json=payload)
@@ -68,6 +83,20 @@ class GroqClient:
                 raise GroqServiceError(f"Could not reach Groq: {exc}", agent=self.name) from exc
 
             code = resp.status_code
+            if code >= 400 and not adapted:
+                too_large = self._too_large(resp)
+                if too_large:
+                    limit, requested = too_large
+                    prompt_tokens = requested - payload["max_tokens"]
+                    room = limit - prompt_tokens - 100
+                    if room >= MIN_OUTPUT_TOKENS:
+                        payload["max_tokens"], adapted = room, True  # shrink only the reserved output and retry once
+                        continue
+                    raise GroqServiceError(
+                        f"The request for {self.name} needs about {prompt_tokens} input tokens, but the model's per-minute limit is {limit}. "
+                        f"Choose a model with a higher limit in GROQ_MODEL_{AGENT_INDEX.get(self.name, 3)}.", agent=self.name)
+                if code == 413:
+                    raise GroqServiceError(f"The request for {self.name} was too large for the model.", agent=self.name)
             if code in (401, 403):
                 raise GroqAuthError(f"The Groq API key for {self.name} was rejected.", agent=self.name)
             if code == 429 or code >= 500:

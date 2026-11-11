@@ -89,3 +89,26 @@ def test_settings_from_env(monkeypatch):
 def test_missing_and_duplicate_keys():
     s = Settings(groq_keys=("a", "a", ""), groq_models=("m",) * 3, football_api_key="")
     assert s.missing_groq() == ["GROQ_API_KEY_3"] and s.duplicate_key_warning()
+
+
+def _too_large(limit=8000, requested=9877):
+    msg = f"Request too large for model `m` on tokens per minute (TPM): Limit {limit}, Requested {requested}, please reduce your message size"
+    return httpx.Response(413, json={"error": {"message": msg, "type": "tokens", "code": "rate_limit_exceeded"}})
+
+
+def test_too_large_request_is_retried_once_with_a_smaller_output_budget():
+    bodies = []
+    seq = iter([_too_large(), ok('{"a": 1}')])
+
+    def handler(req):
+        bodies.append(json.loads(req.content))
+        return next(seq)
+
+    assert asyncio.run(client(handler).chat_json("s", "u", max_tokens=3500)) == {"a": 1}
+    # input was 9877 - 3500 = 6377 tokens, so 8000 - 6377 - 100 = 1523 are left for the answer
+    assert [b["max_tokens"] for b in bodies] == [3500, 1523]
+
+
+def test_input_too_large_even_without_output_gives_a_clear_message():
+    with pytest.raises(GroqServiceError, match="per-minute limit is 8000"):
+        asyncio.run(client(lambda r: _too_large(8000, 12000)).chat_json("s", "u", max_tokens=3500))
