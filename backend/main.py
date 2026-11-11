@@ -112,7 +112,7 @@ def create_app(
         }
 
     @app.get("/api/fixtures")
-    async def fixtures(days: int = Query(7, ge=1, le=10), competitions: Optional[str] = None):
+    async def fixtures(days: int = Query(14, ge=1, le=30), competitions: Optional[str] = None):
         today = datetime.now(timezone.utc).date()
         matches = await get_provider().list_fixtures(
             today.isoformat(), (today + timedelta(days=days)).isoformat(), competitions

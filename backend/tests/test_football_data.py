@@ -91,3 +91,30 @@ def test_fixtures_listing():
     data = {"matches": [raw_match(2, "2026-11-11", H, A, None, None, "TIMED"), raw_match(1, "2026-11-10", A, H, None, None, "TIMED")]}
     out = asyncio.run(provider(lambda r: httpx.Response(200, json=data)).list_fixtures("2026-11-08", "2026-11-15"))
     assert [m.id for m in out] == [1, 2]
+
+
+def test_long_window_is_split_into_short_requests_and_merged():
+    ranges = []
+
+    def handler(req):
+        a, b = req.url.params["dateFrom"], req.url.params["dateTo"]
+        ranges.append((a, b))
+        day = a  # one match per chunk; the first chunk is returned again by a second call to test de-duplication
+        return httpx.Response(200, json={"matches": [raw_match(int(a[-2:]), day, H, A, None, None, "TIMED")]})
+
+    out = asyncio.run(provider(handler).list_fixtures("2026-11-11", "2026-12-10"))
+    assert ranges == [("2026-11-11", "2026-11-20"), ("2026-11-21", "2026-11-30"), ("2026-12-01", "2026-12-10")]
+    assert all((__import__("datetime").date.fromisoformat(b) - __import__("datetime").date.fromisoformat(a)).days <= 9 for a, b in ranges)
+    assert [m.id for m in out] == [11, 21, 1] and [m.utc_date[:10] for m in out] == ["2026-11-11", "2026-11-21", "2026-12-01"]
+
+
+def test_api_accepts_up_to_30_days_and_rejects_more(tmp_path):
+    from fastapi.testclient import TestClient
+    from config import Settings
+    from main import create_app
+    from tests.test_workflow_and_api import FakeProvider
+    ctx = __import__("tests.conftest", fromlist=["x"]).context.__wrapped__()
+    app = create_app(Settings(groq_keys=("a", "b", "c"), groq_models=("m",) * 3, football_api_key="f", predictions_dir=str(tmp_path)), FakeProvider(ctx))
+    c = TestClient(app)
+    assert c.get("/api/fixtures?days=30").status_code == 200 and c.get("/api/fixtures").status_code == 200
+    assert c.get("/api/fixtures?days=31").status_code == 422

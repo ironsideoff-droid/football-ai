@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from datetime import date, timedelta
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -32,6 +33,9 @@ UNAVAILABLE = {
     "expected_goals_xg": "unavailable: no xG data is supplied",
     "advanced_stats": "unavailable: no pressing, possession or shot data is supplied",
 }
+
+
+MAX_RANGE_DAYS = 10  # largest date range requested from the API in one call
 
 
 class FootballProvider(ABC):
@@ -100,10 +104,19 @@ class FootballDataOrgProvider(FootballProvider):
         return data
 
     async def list_fixtures(self, date_from, date_to, competitions=None):
-        params = {"dateFrom": date_from, "dateTo": date_to}
-        if competitions:
-            params["competitions"] = competitions
-        return normalize_fixtures(await self._get("/matches", params))
+        """Upcoming matches for any window. The API limits one request to a short date range, so the window is
+        split into chunks of at most MAX_RANGE_DAYS and the results are merged (one request per chunk)."""
+        start, end = date.fromisoformat(date_from), date.fromisoformat(date_to)
+        found: dict[int, MatchSummary] = {}
+        while start <= end:
+            stop = min(start + timedelta(days=MAX_RANGE_DAYS - 1), end)
+            params = {"dateFrom": start.isoformat(), "dateTo": stop.isoformat()}
+            if competitions:
+                params["competitions"] = competitions
+            for m in normalize_fixtures(await self._get("/matches", params)):
+                found[m.id] = m
+            start = stop + timedelta(days=1)
+        return sorted(found.values(), key=lambda m: m.utc_date)
 
     async def get_match_context(self, match_id: int) -> MatchContext:
         raw = await self._get(f"/matches/{match_id}")

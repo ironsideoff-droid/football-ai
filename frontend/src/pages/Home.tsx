@@ -13,6 +13,7 @@ export default function Home() {
   const [health, setHealth] = useState<Health | null>(null);
   const [matches, setMatches] = useState<MatchSummary[]>([]);
   const [loadingFixtures, setLoadingFixtures] = useState(true);
+  const [days, setDays] = useState(14);
   const [selected, setSelected] = useState<MatchSummary | null>(null);
   const [steps, setSteps] = useState<Step[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -23,12 +24,18 @@ export default function Home() {
 
   useEffect(() => {
     getHealth().then(setHealth).catch((e: ApiError) => setFixtureError(e.message));
-    getFixtures()
-      .then(setMatches)
-      .catch((e: ApiError) => setFixtureError(e.message))
-      .finally(() => setLoadingFixtures(false));
     return () => { if (timer.current) window.clearTimeout(timer.current); };
   }, []);
+
+  useEffect(() => {
+    let current = true;
+    setLoadingFixtures(true); setFixtureError(null);
+    getFixtures(days)
+      .then((m) => { if (current) { setMatches(m); setSelected((s) => (s && m.some((x) => x.id === s.id) ? s : null)); } })
+      .catch((e: ApiError) => { if (current) setFixtureError(e.message); })
+      .finally(() => { if (current) setLoadingFixtures(false); });
+    return () => { current = false; };
+  }, [days]);
 
   const poll = useCallback(async (jobId: string) => {
     try {
@@ -75,7 +82,7 @@ export default function Home() {
         <h2>Choose a match</h2>
         {loadingFixtures ? <p className="muted">Loading fixtures…</p>
           : fixtureError ? <p className="warn">{fixtureError}</p>
-          : <MatchSelector matches={matches} selectedId={selected?.id ?? null} onSelect={setSelected} disabled={running} />}
+          : <MatchSelector matches={matches} selectedId={selected?.id ?? null} onSelect={setSelected} disabled={running} days={days} onDaysChange={setDays} />}
         <button className="analyze" onClick={analyze} disabled={!selected || running}>
           {running ? "Analyzing…" : selected ? `Analyze ${selected.home.short_name ?? selected.home.name} v ${selected.away.short_name ?? selected.away.name}` : "Analyze match"}
         </button>

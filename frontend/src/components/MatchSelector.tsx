@@ -6,6 +6,8 @@ interface Props {
   selectedId: number | null;
   onSelect: (m: MatchSummary) => void;
   disabled?: boolean;
+  days: number;
+  onDaysChange: (d: number) => void;
 }
 
 export function Crest({ src, name }: { src?: string | null; name: string }) {
@@ -15,21 +17,35 @@ export function Crest({ src, name }: { src?: string | null; name: string }) {
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export default function MatchSelector({ matches, selectedId, onSelect, disabled }: Props) {
+export default function MatchSelector({ matches, selectedId, onSelect, disabled, days, onDaysChange }: Props) {
   const [comp, setComp] = useState("all");
   const comps = useMemo(() => Array.from(new Set(matches.map((m) => m.competition ?? "Other"))), [matches]);
   const shown = matches.filter((m) => comp === "all" || (m.competition ?? "Other") === comp);
 
-  if (!matches.length) return <p className="muted">No fixtures found for the next days. Try again later.</p>;
-  return (
-    <div>
+  const picker = (
+    <div className="filters">
       <label className="field">
-        <span>Competition</span>
-        <select value={comp} onChange={(e) => setComp(e.target.value)} disabled={disabled}>
-          <option value="all">All competitions</option>
-          {comps.map((c) => <option key={c}>{c}</option>)}
+        <span>Show matches in the next</span>
+        <select value={days} onChange={(e) => onDaysChange(Number(e.target.value))} disabled={disabled}>
+          {[7, 14, 21, 30].map((d) => <option key={d} value={d}>{d} days</option>)}
         </select>
       </label>
+      {matches.length > 0 && (
+        <label className="field">
+          <span>Competition</span>
+          <select value={comp} onChange={(e) => setComp(e.target.value)} disabled={disabled}>
+            <option value="all">All competitions</option>
+            {comps.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </label>
+      )}
+    </div>
+  );
+
+  if (!matches.length) return <div>{picker}<p className="muted">No fixtures in the next {days} days. Try a longer period.</p></div>;
+  return (
+    <div>
+      {picker}
       <ul className="fixtures" role="listbox" aria-label="Fixtures">
         {shown.map((m) => (
           <li key={m.id}>
@@ -49,6 +65,10 @@ export default function MatchSelector({ matches, selectedId, onSelect, disabled 
           </li>
         ))}
       </ul>
+      <p className="muted small">
+        International matches appear here when a World Cup or European Championship match is scheduled. The free football data plan has no other
+        international fixtures (no Nations League, qualifiers or friendlies).
+      </p>
     </div>
   );
 }

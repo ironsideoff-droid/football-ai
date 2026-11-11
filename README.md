@@ -129,7 +129,7 @@ machine a full simulation takes about 0.05 s.
 and backtest will accumulate.
 
 ## API
-`GET /api/health` · `GET /api/fixtures?days=7&competitions=PL,PD` · `GET /api/matches/{id}` · `POST /api/analyze` ·
+`GET /api/health` · `GET /api/fixtures?days=14&competitions=PL,PD` (up to 30 days; split into 10-day requests) · `GET /api/matches/{id}` · `POST /api/analyze` ·
 `POST /api/analyze/start` + `GET /api/jobs/{id}` (progress, used by the UI) · `GET /api/predictions` · `GET /api/evaluation` ·
 `POST /api/evaluation/refresh` · `GET /api/backtest`. Errors: `{"error": {"code", "message", "agent"}}`.
 
@@ -145,6 +145,7 @@ backtesting without look-ahead, store immutability, API error handling, the full
   "unavailable" for that source instead of inventing data.
 * football-data.org (free tier) has no injuries, suspensions, lineups, xG, shots, possession or odds; these are reported as missing and lower confidence.
   Its limit is 10 requests/minute (one analysis uses about 5; results are cached for 5 minutes).
+* International matches: football-data.org's free plan includes only the World Cup and the European Championship, so other international fixtures (Nations League, qualifiers, friendlies) cannot be listed. Adding them needs another data provider (`FootballProvider` is the extension point).
 * News = **headlines only** from an aggregator, not article bodies; nothing is independently verified, so exact quotes are limited to what a headline contains.
 * Time-segment and event constants are literature approximations; adjustment and scenario caps are guard-rails, not fitted.
 * The LLM agents are not covered by the backtest; their value shows only in the track record, which needs many finished matches.

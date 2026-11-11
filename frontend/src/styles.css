@@ -129,3 +129,5 @@ a { color: var(--teal); }
 
 .panel { min-width: 0; }
 .prose, .scenario p, .finding { overflow-wrap: anywhere; }
+
+.filters { display: flex; gap: 16px; flex-wrap: wrap; }

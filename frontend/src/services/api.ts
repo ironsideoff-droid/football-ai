@@ -22,7 +22,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const getHealth = () => request<Health>("/health");
-export const getFixtures = (days = 7) =>
+export const getFixtures = (days = 14) =>
   request<{ matches: MatchSummary[] }>(`/fixtures?days=${days}`).then((r) => r.matches);
 export const startAnalysis = (matchId: number) =>
   request<{ job_id: string }>("/analyze/start", { method: "POST", body: JSON.stringify({ match_id: matchId }) });
