@@ -1,4 +1,5 @@
-"""Append-only prediction store (JSON lines on local disk; no database).
+"""Append-only prediction store (JSON lines on local disk). Used for local development and tests;
+production uses evaluation/pg_store.py (Postgres) with the same interface.
 
 * A prediction is written once. Writing the same match again is refused, never overwritten.
 * A prediction is refused if the match has already kicked off.
@@ -31,6 +32,7 @@ class PredictionStore:
         self._lock = threading.Lock()
         self.predictions_file = self.dir / "predictions.jsonl"
         self.results_file = self.dir / "results.jsonl"
+        self.analyses_file = self.dir / "analyses.jsonl"
 
     def _read(self, path: Path) -> list[dict]:
         if not path.exists():
@@ -84,6 +86,18 @@ class PredictionStore:
             row = {"match_id": match_id, "home": home, "away": away, "recorded_at": _now().isoformat(timespec="seconds")}
             self._append(self.results_file, row)
             return row
+
+    def get_analysis(self, match_id: int) -> Optional[dict]:
+        """The full analysis stored together with the prediction (served to later users instead of re-running the agents)."""
+        row = next((a for a in self._read(self.analyses_file) if a["match_id"] == match_id), None)
+        return row["result"] if row else None
+
+    def save_analysis(self, match_id: int, result: dict) -> bool:
+        with self._lock:
+            if self.get_analysis(match_id) is not None:
+                return False
+            self._append(self.analyses_file, {"match_id": match_id, "result": result, "created_at": _now().isoformat(timespec="seconds")})
+            return True
 
     def verify(self) -> list[int]:
         """Match ids whose stored prediction no longer matches its digest (tampering or corruption)."""

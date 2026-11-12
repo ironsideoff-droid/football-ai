@@ -76,9 +76,14 @@ export interface Job {
   job_id: string; status: "running" | "done" | "error"; steps: Step[]; result: AnalysisResult | null;
   error: { code: string; message: string; agent?: string | null } | null;
 }
+/** In production the health endpoint returns only {status}; the setup details exist in local development only. */
 export interface Health {
-  status: string; football_api_configured: boolean; warnings: string[];
-  agents: { name: string; key_configured: boolean; model: string }[];
+  status: string; football_api_configured?: boolean; warnings?: string[];
+  agents?: { name: string; key_configured: boolean; model: string }[];
+}
+export interface BillingStatus {
+  active: boolean; status: string; current_period_end: string | null; cancel_at_period_end: boolean;
+  daily_limit: number; used_today: number; email?: string | null;
 }
 export interface Market { accuracy?: number; brier?: number; log_loss?: number; n?: number }
 export interface EvalReport {

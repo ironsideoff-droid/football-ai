@@ -217,9 +217,16 @@ class Orchestrator:
             warnings.append(cap_note)
         models = {"statistical_researcher": self.researcher.client.model, "football_intelligence": self.intelligence.client.model,
                   "chief_predictor": self.chief.client.model}
-        record = self._store(ctx, simulation, prediction, quality.score, models)
+        record = await asyncio.to_thread(self._store, ctx, simulation, prediction, quality.score, models)
 
-        return AnalysisResult(
+        result = AnalysisResult(
             match=match, researcher=research, intelligence=intel, chief_plan=plan, simulation=simulation, prediction=prediction,
             data_quality=quality, sources=ctx.sources, news_items=news.items, data_availability=ctx.data_availability,
             warnings=warnings, models=models, prediction_record=record, generated_at=now_iso())
+        if record.get("status") == "saved" and self.store is not None:
+            # Keep the full analysis next to the immutable prediction so later users are served this exact analysis.
+            try:
+                await asyncio.to_thread(self.store.save_analysis, match.id, result.model_dump(mode="json"))
+            except AppError:
+                pass  # the prediction itself is saved; only the cached copy is missing
+        return result

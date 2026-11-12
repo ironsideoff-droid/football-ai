@@ -131,3 +131,20 @@ a { color: var(--teal); }
 .prose, .scenario p, .finding { overflow-wrap: anywhere; }
 
 .filters { display: flex; gap: 16px; flex-wrap: wrap; }
+
+/* production: auth, billing, legal */
+.ok { background: #14261f; border: 1px solid #25574a; color: #a8e0d3; border-radius: 8px; padding: 10px 14px; margin: 8px 0; }
+input { font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; padding: 9px 11px; }
+.authbox { max-width: 460px; }
+.authform { display: grid; gap: 4px; }
+.authform .field { max-width: none; }
+.authform .analyze { margin-top: 8px; }
+.authlinks { display: flex; gap: 16px; flex-wrap: wrap; margin: 14px 0 0; }
+.linklike { background: none; border: 0; padding: 0; color: var(--teal); cursor: pointer; text-decoration: underline; font-size: inherit; }
+.linklike:disabled { color: var(--muted); cursor: default; }
+.ticks { margin: 0 0 14px; padding-left: 20px; display: grid; gap: 6px; }
+.accountbar { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: baseline; margin-bottom: -6px; }
+.accountbtns { display: flex; gap: 16px; }
+.plan.on { color: var(--teal); }
+.paywall { border-color: var(--amber); }
+.legal { margin-top: 36px; border-top: 1px solid var(--rule); padding-top: 14px; max-width: 80ch; }
