@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -20,6 +22,8 @@ from schemas.sources import SourceRecord
 from simulation.goal_model import GoalModelConfig
 from simulation.monte_carlo import N_SIMULATIONS, run_simulation
 from simulation.parameter_engine import build_priors
+
+log = logging.getLogger("football_ai.analysis")
 
 STEPS = [
     ("data", "Football data"),
@@ -114,15 +118,19 @@ class Orchestrator:
 
     async def _step(self, progress: Progress, key: str, coro, message: Optional[str] = None):
         progress.start(key, message)
+        t0 = time.monotonic()
         try:
             result = await coro
         except AppError as exc:
             progress.fail(key, exc.message)
+            log.warning("step failed", extra={"step": key, "error_code": exc.code, "duration_ms": round((time.monotonic() - t0) * 1000)})
             raise
         except Exception as exc:  # noqa: BLE001
             progress.fail(key, str(exc))
+            log.warning("step crashed", extra={"step": key, "error_type": type(exc).__name__, "duration_ms": round((time.monotonic() - t0) * 1000)})
             raise
         progress.done(key)
+        log.info("step done", extra={"step": key, "duration_ms": round((time.monotonic() - t0) * 1000)})
         return result
 
     async def _fetch_news(self, ctx: MatchContext) -> NewsBundle:
@@ -131,9 +139,11 @@ class Orchestrator:
         try:
             return await self.news.fetch(ctx.match)
         except Exception as exc:  # noqa: BLE001  news is optional: its failure never stops the analysis
+            log.warning("news unavailable; continuing without it", extra={"error_type": type(exc).__name__, "error": str(exc)[:200]})
             return NewsBundle(status="unavailable", errors=[f"{type(exc).__name__}: {exc}"], retrieved_at=now_iso())
 
     def _abstain(self, ctx: MatchContext, news: NewsBundle, reason: str, progress: Progress, warnings: list[str], **parts) -> AnalysisResult:
+        log.info("abstaining: not enough reliable data", extra={"match_id": ctx.match.id, "reason": reason[:300]})
         for key, step in progress.steps.items():
             if step.status == "pending":
                 progress.done(key, "Skipped: not enough reliable data")
@@ -155,9 +165,25 @@ class Orchestrator:
         except ImmutablePredictionError as exc:
             return {"status": "not_saved", "reason": exc.message}
         except AppError as exc:
+            log.error("prediction could not be stored", extra={"match_id": ctx.match.id, "error_code": exc.code, "error": exc.message[:300]})
             return {"status": "storage_error", "reason": exc.message}
 
     async def analyze(self, match_id: int, progress: Optional[Progress] = None) -> AnalysisResult:
+        t0 = time.monotonic()
+        log.info("analysis started", extra={"match_id": match_id})
+        try:
+            result = await self._analyze(match_id, progress)
+        except Exception as exc:
+            log.warning("analysis failed", extra={"match_id": match_id, "error_code": getattr(exc, "code", "internal_error"),
+                                                  "duration_ms": round((time.monotonic() - t0) * 1000)})
+            raise
+        log.info("analysis finished", extra={
+            "match_id": match_id, "abstained": result.abstained, "prediction_record": result.prediction_record.get("status"),
+            "data_quality": round(result.data_quality.score, 2) if result.data_quality else None, "warnings": len(result.warnings),
+            "duration_ms": round((time.monotonic() - t0) * 1000)})
+        return result
+
+    async def _analyze(self, match_id: int, progress: Optional[Progress] = None) -> AnalysisResult:
         progress = progress or Progress()
         ctx = await self._step(progress, "data", self.provider.get_match_context(match_id))
         match = ctx.match

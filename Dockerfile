@@ -8,5 +8,6 @@ COPY backend/ ./
 RUN useradd --create-home --uid 10001 app && chown -R app /app
 USER app
 ENV PORT=10000
+# --no-access-log: the app writes its own structured request log (request id, user id, duration).
 # One worker on purpose: analysis jobs and the concurrency limiter live in this process (see services/jobs.py).
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 1 --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 1 --no-access-log --proxy-headers --forwarded-allow-ips='*'"]

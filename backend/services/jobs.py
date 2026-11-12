@@ -26,6 +26,7 @@ class Job:
     match_id: int
     user_id: str
     status: str = "running"
+    created_at: float = field(default_factory=time.monotonic)
     progress: Progress = field(default_factory=Progress)
     result: Optional[AnalysisResult | dict] = None
     error: Optional[dict] = None
@@ -59,6 +60,7 @@ class JobStore:
         self._prune()
         job = Job(id=uuid.uuid4().hex[:16], match_id=match_id, user_id=user_id)
         self._jobs[job.id] = job
+        log.info("job queued", extra={"job_id": job.id, "match_id": match_id, "user_id": user_id})
         task = asyncio.create_task(self._run(orchestrator, job, on_failure))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -76,17 +78,25 @@ class JobStore:
     async def _run(self, orchestrator: Orchestrator, job: Job, on_failure) -> None:
         try:
             async with self.limiter:
+                started = time.monotonic()
+                log.info("job started", extra={"job_id": job.id, "match_id": job.match_id, "user_id": job.user_id,
+                                               "queue_ms": round((started - job.created_at) * 1000)})
                 job.result = await asyncio.wait_for(orchestrator.analyze(job.match_id, job.progress), ANALYSIS_TIMEOUT_SECONDS)
             job.status = "done"
         except AppError as exc:
             job.status, job.error = "error", exc.to_dict()["error"]
+            log.warning("job failed", extra={"job_id": job.id, "match_id": job.match_id, "user_id": job.user_id, "error_code": exc.code,
+                                             "agent": getattr(exc, "agent", None), "error": exc.message[:300]})
         except asyncio.TimeoutError:
+            log.warning("job timed out", extra={"job_id": job.id, "match_id": job.match_id, "user_id": job.user_id, "timeout_s": ANALYSIS_TIMEOUT_SECONDS})
             job.status, job.error = "error", {"code": "timeout", "message": "The analysis took too long. Please try again.", "agent": None}
         except Exception:  # noqa: BLE001
-            log.exception("analysis job %s failed", job.id)
+            log.exception("job crashed", extra={"job_id": job.id, "match_id": job.match_id, "user_id": job.user_id})
             job.status, job.error = "error", {"code": "internal_error", "message": "Something went wrong. Please try again.", "agent": None}
         finally:
             job.finished_at = time.monotonic()
+        log.info("job finished", extra={"job_id": job.id, "match_id": job.match_id, "user_id": job.user_id, "status": job.status,
+                                        "total_ms": round((job.finished_at - job.created_at) * 1000)})
         if job.status == "error" and on_failure:
             try:
                 await on_failure()

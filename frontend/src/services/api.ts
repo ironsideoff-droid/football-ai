@@ -27,7 +27,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const e = body?.error;
     if (res.status === 401 && token && onUnauthorized) onUnauthorized();
-    throw new ApiError(e?.message ?? body?.detail ?? `Request failed (${res.status}).`, e?.code, e?.agent, res.status);
+    const ref = e?.request_id ? ` (reference ${e.request_id})` : ""; // quote this when reporting a problem; it finds the server logs
+    throw new ApiError((e?.message ?? body?.detail ?? `Request failed (${res.status}).`) + ref, e?.code, e?.agent, res.status);
   }
   return body as T;
 }

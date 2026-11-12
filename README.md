@@ -192,6 +192,19 @@ Production layer: JWT verification (expiry, audience, issuer, forged and algorit
 allowance refunds, one-analysis-per-match caching, job ownership, Stripe webhooks (signature, replay, idempotency, out-of-order delivery, retries),
 checkout and portal parameters, and the Postgres stores against the real migration (append-only triggers, concurrent writers, RLS lock-out).
 
+## Logging
+The API writes one **JSON object per line** to stdout in production (readable text in local development), which is what Render's
+Logs page and log drains expect. Set `LOG_LEVEL` (`INFO` default, `DEBUG` adds every football-data.org call) and `LOG_FORMAT` (`json` | `text`).
+
+* Every request gets a **request id** (also returned in the `X-Request-ID` header, and shown to users as "reference …" on server errors).
+  It is attached to every line written while handling the request, including the background analysis it starts, so a support
+  question becomes: search the logs for that id.
+* Logged: requests (method, path without query string, status, duration, user id), analysis lifecycle (queued → started → each step with duration → finished),
+  Groq calls (agent, model, duration, token counts, retries), football-data.org problems, Stripe webhook outcomes, auth rejections (reason only), admin denials, server-side errors with tracebacks.
+* **Never logged:** tokens, API keys, prompts, model output, email addresses, query strings. A scrubber also masks bearer tokens, JWTs, Stripe and Groq keys,
+  passwords in URLs and email addresses in everything that is written, as a second line of defence.
+* Useful searches on Render: `"level":"ERROR"`, `"msg":"job failed"`, `"msg":"stripe webhook"`, `"user_id":"<uuid>"`, `"request_id":"<id>"`.
+
 ## Known limitations
 * **Not tested live.** The build environment could not reach Groq, football-data.org or Google News, so every automated test uses mocks.
   The first real run is the real integration test; if a provider response differs from what the parsers expect, the analysis degrades to
@@ -203,4 +216,4 @@ checkout and portal parameters, and the Postgres stores against the real migrati
 * Time-segment and event constants are literature approximations; adjustment and scenario caps are guard-rails, not fitted.
 * The LLM agents are not covered by the backtest; their value shows only in the track record, which needs many finished matches.
 * The API runs as a single process (`render.yaml` pins one instance): running jobs and the concurrency limiter live in memory. Scaling out needs a shared job queue first.
-* Not yet in place: error monitoring (Sentry or similar), IP-based rate limiting of the public endpoints, and database backups beyond Supabase's defaults.
+* Not yet in place: alerting on the error logs (e.g. a Render log stream into Sentry or Better Stack), IP-based rate limiting of the public endpoints, and database backups beyond Supabase's defaults.

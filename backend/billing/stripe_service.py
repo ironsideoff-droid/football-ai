@@ -49,14 +49,18 @@ class BillingService:
         if self.settings.stripe_automatic_tax:  # EU VAT etc.; needs Stripe Tax set up in the dashboard
             params.update(automatic_tax={"enabled": True}, billing_address_collection="required",
                           customer_update={"address": "auto", "name": "auto"})
-        return stripe.checkout.Session.create(api_key=key, **params)["url"]
+        url = stripe.checkout.Session.create(api_key=key, **params)["url"]
+        log.info("checkout session created", extra={"user_id": user.id, "automatic_tax": self.settings.stripe_automatic_tax})
+        return url
 
     def create_portal(self, user: AuthUser) -> str:
         self._require_stripe()
         customer = self.store.get_customer_id(user.id)
         if not customer:
             raise BillingError("There is no billing account for this user yet.")
-        return stripe.billing_portal.Session.create(customer=customer, return_url=self.settings.app_url, api_key=self.settings.stripe_secret_key)["url"]
+        url = stripe.billing_portal.Session.create(customer=customer, return_url=self.settings.app_url, api_key=self.settings.stripe_secret_key)["url"]
+        log.info("billing portal session created", extra={"user_id": user.id})
+        return url
 
     # ------------------------------------------------------------------ webhook (blocking)
     def handle_webhook(self, payload: bytes, signature: Optional[str]) -> str:
@@ -67,18 +71,23 @@ class BillingService:
         try:
             stripe.Webhook.construct_event(payload, signature or "", self.settings.stripe_webhook_secret)
         except (ValueError, stripe.SignatureVerificationError) as exc:
+            log.warning("stripe webhook rejected", extra={"reason": "invalid_signature_or_payload", "error_type": type(exc).__name__})
             raise BillingError("Invalid webhook signature.") from exc
         event = json.loads(payload)
         event_id, etype = event["id"], event["type"]
         if etype != "checkout.session.completed" and etype not in SUBSCRIPTION_EVENTS:
+            log.debug("stripe webhook ignored", extra={"event_id": event_id, "event_type": etype})
             return "ignored"
         if not self.store.record_event(event_id, etype):
+            log.info("stripe webhook", extra={"event_id": event_id, "event_type": etype, "outcome": "duplicate"})
             return "duplicate"
         try:
             self._apply(etype, event["data"]["object"], int(event.get("created", 0)))
         except Exception:
+            log.exception("stripe webhook failed; Stripe will retry", extra={"event_id": event_id, "event_type": etype})
             self.store.forget_event(event_id)  # let Stripe's retry run it again
             raise
+        log.info("stripe webhook", extra={"event_id": event_id, "event_type": etype, "outcome": "processed"})
         return "processed"
 
     def _apply(self, etype: str, obj: dict, created: int) -> None:
@@ -89,12 +98,13 @@ class BillingService:
         customer = obj.get("customer")
         user_id = (obj.get("metadata") or {}).get("user_id") or (self.store.user_for_customer(customer) if customer else None)
         if not user_id:
-            log.warning("Stripe subscription %s has no known user; ignored", obj.get("id"))
+            log.warning("stripe subscription has no known user; ignored", extra={"subscription_id": obj.get("id"), "customer_id": customer})
             return
         applied = self.store.upsert_subscription(
             user_id, customer, obj.get("id"), obj.get("status", "none"), _period_end(obj),
             bool(obj.get("cancel_at_period_end")), created)
-        log.info("subscription %s for user %s -> %s%s", obj.get("id"), user_id, obj.get("status"), "" if applied else " (stale event, skipped)")
+        log.info("subscription updated" if applied else "subscription event skipped (older than stored state)",
+                 extra={"user_id": user_id, "subscription_id": obj.get("id"), "status": obj.get("status"), "cancel_at_period_end": bool(obj.get("cancel_at_period_end"))})
 
 
 def _period_end(sub: dict) -> Optional[datetime]:

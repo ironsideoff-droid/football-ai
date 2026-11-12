@@ -44,6 +44,8 @@ class Settings:
     admin_secret: str = ""  # protects /api/admin/* (X-Admin-Secret header)
     daily_analysis_limit: int = 30
     max_concurrent_analyses: int = 3
+    log_level: str = "INFO"
+    log_format: str = ""  # "json" | "text" | "" (auto: json when auth_enabled, text for local development)
 
     def agent(self, index: int) -> AgentConfig:
         return AgentConfig(AGENT_NAMES[index], self.groq_keys[index], self.groq_models[index])
@@ -57,6 +59,10 @@ class Settings:
             return "Two or more GROQ_API_KEY_* values are identical; use three different Groq accounts."
         return None
 
+
+    @property
+    def effective_log_format(self) -> str:
+        return self.log_format if self.log_format in ("json", "text") else ("json" if self.auth_enabled else "text")
 
     def production_problems(self) -> list[str]:
         """Configuration that is missing for a real deployment. Empty when everything needed is set."""
@@ -114,5 +120,7 @@ def load_settings() -> Settings:
         admin_secret=(env("ADMIN_SECRET") or "").strip(),
         daily_analysis_limit=_int(env("DAILY_ANALYSIS_LIMIT"), 30),
         max_concurrent_analyses=max(1, _int(env("MAX_CONCURRENT_ANALYSES"), 3)),
+        log_level=((env("LOG_LEVEL") or "INFO").strip().upper() or "INFO"),
+        log_format=(env("LOG_FORMAT") or "").strip().lower(),
         **({"cors_origins": tuple(o.strip() for o in env("CORS_ORIGINS", "").split(",") if o.strip())} if (env("CORS_ORIGINS") or "").strip() else {}),
     )

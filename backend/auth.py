@@ -8,6 +8,7 @@ asymmetric tokens are checked against the project's published keys only, so a fo
 from __future__ import annotations
 
 import hmac
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
@@ -23,6 +24,8 @@ class AuthUser:
     id: str
     email: Optional[str] = None
 
+
+log = logging.getLogger("football_ai.auth")
 
 DEV_USER = AuthUser(id="00000000-0000-0000-0000-000000000000", email="dev@localhost")
 
@@ -40,22 +43,27 @@ class Authenticator:
             alg = jwt.get_unverified_header(token).get("alg")
             if alg == "HS256":
                 if not self.settings.supabase_jwt_secret:
+                    log.warning("token rejected", extra={"reason": "hs256_without_configured_secret"})
                     raise AuthError("Invalid token.")
                 key = self.settings.supabase_jwt_secret
             elif alg in ("ES256", "RS256"):
                 assert self._jwks is not None
                 key = self._jwks.get_signing_key_from_jwt(token).key
             else:
+                log.warning("token rejected", extra={"reason": "unsupported_algorithm", "alg": str(alg)[:20]})
                 raise AuthError("Invalid token.")
             claims = jwt.decode(token, key, algorithms=[alg], audience="authenticated", issuer=self.issuer,
                                 options={"require": ["exp", "sub"]})
         except AuthError:
             raise
         except jwt.ExpiredSignatureError as exc:
+            log.info("token rejected", extra={"reason": "expired"})
             raise AuthError("Your session has expired. Please sign in again.") from exc
         except jwt.PyJWKClientError as exc:  # signing keys could not be fetched: our side, not the user's
+            log.error("could not load Supabase signing keys", extra={"error_type": type(exc).__name__})
             raise ConfigError("Could not load the identity provider's signing keys. Try again shortly.") from exc
         except jwt.InvalidTokenError as exc:
+            log.warning("token rejected", extra={"reason": "invalid", "error_type": type(exc).__name__})
             raise AuthError("Invalid token.") from exc
         return AuthUser(id=str(claims["sub"]), email=claims.get("email"))
 

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
+import time
 from typing import Optional
 
 import httpx
 
 from errors import AgentOutputError, GroqAuthError, GroqRateLimitError, GroqServiceError
+
+log = logging.getLogger("football_ai.groq")
 
 
 MIN_OUTPUT_TOKENS = 900  # below this a JSON report cannot be completed
@@ -65,6 +69,7 @@ class GroqClient:
         await self._http.aclose()
 
     async def chat_json(self, system: str, user: str, *, temperature: float = 0.2, max_tokens: int = 3500) -> dict:
+        # Logged: agent, model, timing, status and token counts. Never the prompts or the model's output.
         payload = {
             "model": self.model,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -74,12 +79,16 @@ class GroqClient:
         }
         attempt = 0
         adapted = False
+        t0 = time.monotonic()
         while True:
             try:
                 resp = await self._http.post("/chat/completions", json=payload)
             except httpx.TimeoutException as exc:
+                log.warning("groq timeout", extra={"agent": self.name, "model": self.model, "attempt": attempt + 1,
+                                                   "duration_ms": round((time.monotonic() - t0) * 1000)})
                 raise GroqServiceError("Groq request timed out.", agent=self.name) from exc
             except httpx.HTTPError as exc:
+                log.warning("groq unreachable", extra={"agent": self.name, "model": self.model, "error_type": type(exc).__name__})
                 raise GroqServiceError(f"Could not reach Groq: {exc}", agent=self.name) from exc
 
             code = resp.status_code
@@ -90,6 +99,8 @@ class GroqClient:
                     prompt_tokens = requested - payload["max_tokens"]
                     room = limit - prompt_tokens - 100
                     if room >= MIN_OUTPUT_TOKENS:
+                        log.warning("groq request too large; shrinking reserved output and retrying",
+                                    extra={"agent": self.name, "model": self.model, "limit": limit, "requested": requested, "new_max_tokens": room})
                         payload["max_tokens"], adapted = room, True  # shrink only the reserved output and retry once
                         continue
                     raise GroqServiceError(
@@ -98,13 +109,16 @@ class GroqClient:
                 if code == 413:
                     raise GroqServiceError(f"The request for {self.name} was too large for the model.", agent=self.name)
             if code in (401, 403):
+                log.error("groq rejected the API key", extra={"agent": self.name, "model": self.model, "status": code})
                 raise GroqAuthError(f"The Groq API key for {self.name} was rejected.", agent=self.name)
             if code == 429 or code >= 500:
                 if attempt < self._max_retries:
                     wait = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
+                    log.warning("groq retry", extra={"agent": self.name, "model": self.model, "status": code, "attempt": attempt + 1, "wait_s": min(wait, 20)})
                     await self._sleep(min(wait, 20))
                     attempt += 1
                     continue
+                log.warning("groq gave up", extra={"agent": self.name, "model": self.model, "status": code, "attempts": attempt + 1})
                 if code == 429:
                     raise GroqRateLimitError(
                         f"Groq rate limit reached for {self.name}. Wait a minute or use a model with higher limits.",
@@ -120,7 +134,12 @@ class GroqClient:
             break
 
         try:
-            content = resp.json()["choices"][0]["message"]["content"]
+            body = resp.json()
+            usage = body.get("usage") or {}
+            log.info("groq call", extra={"agent": self.name, "model": self.model, "attempts": attempt + 1, "duration_ms": round((time.monotonic() - t0) * 1000),
+                                         "prompt_tokens": usage.get("prompt_tokens"), "completion_tokens": usage.get("completion_tokens")})
+            content = body["choices"][0]["message"]["content"]
             return extract_json(content)
         except (KeyError, IndexError, ValueError) as exc:
+            log.warning("groq returned invalid JSON", extra={"agent": self.name, "model": self.model})
             raise AgentOutputError(f"{self.name} did not return valid JSON.", agent=self.name) from exc

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -22,6 +23,7 @@ from config import AGENT_NAMES, Settings, load_settings
 from errors import (AnalysisInProgressError, AppError, BillingError, ConfigError, ForbiddenError, SubscriptionRequiredError, UsageLimitError)
 from evaluation import backtesting, metrics
 from evaluation.store import PredictionStore
+from logging_config import clean_request_id, request_id_var, setup_logging
 from football_data.news import DisabledNews, GoogleNewsRssProvider, NewsProvider
 from football_data.provider import FootballDataOrgProvider, FootballProvider
 from services.groq_client import GroqClient
@@ -30,9 +32,8 @@ from services.orchestrator import Orchestrator
 from services.results import refresh_results
 from simulation.goal_model import GoalModelConfig
 
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("football_ai")
+http_log = logging.getLogger("football_ai.http")
 
 EVALUATION_CACHE_SECONDS = 60
 MAX_WEBHOOK_BYTES = 1_000_000
@@ -50,6 +51,7 @@ def create_app(
     billing: Optional[BillingStore] = None,
 ) -> FastAPI:
     settings = settings or load_settings()
+    setup_logging(settings.log_level, settings.effective_log_format)
     state: dict = {"provider": provider, "orchestrator": orchestrator, "clients": [], "news": None, "pool": None}
 
     # ---- storage: Postgres in production (DATABASE_URL), local files / memory for development and tests
@@ -73,10 +75,13 @@ def create_app(
         return billing
 
     # ---- dependencies
-    def current_user(authorization: Optional[str] = Header(None)) -> AuthUser:
+    def current_user(request: Request, authorization: Optional[str] = Header(None)) -> AuthUser:
         if not settings.auth_enabled:
-            return DEV_USER
-        return authn.verify(bearer_token(authorization))
+            user = DEV_USER
+        else:
+            user = authn.verify(bearer_token(authorization))
+        request.state.user_id = user.id  # read by the request-logging middleware
+        return user
 
     def subscriber(user: AuthUser = Depends(current_user)) -> AuthUser:
         if settings.auth_enabled and not is_active(require_billing().get_subscription(user.id)):
@@ -89,6 +94,7 @@ def create_app(
         if not settings.admin_secret:
             raise ConfigError("ADMIN_SECRET is not configured on the server.")
         if not admin_secret_ok(settings.admin_secret, x_admin_secret):
+            log.warning("admin access denied", extra={"reason": "missing" if not x_admin_secret else "wrong_secret"})
             raise ForbiddenError("Forbidden.")
 
     # ---- lazily built external clients
@@ -132,9 +138,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        log.info("starting", extra={"auth_enabled": settings.auth_enabled, "storage": "postgres" if hasattr(store, "pool") else "files",
+                                    "log_format": settings.effective_log_format, "log_level": settings.log_level,
+                                    "daily_analysis_limit": settings.daily_analysis_limit, "max_concurrent_analyses": settings.max_concurrent_analyses,
+                                    "news_enabled": settings.news_enabled, "goal_model": settings.goal_model})
         for problem in settings.production_problems():
             log.error("Configuration problem: %s", problem)
         yield
+        log.info("shutting down")
         for c in state["clients"]:
             await c.aclose()
         if state["provider"] is not None:
@@ -148,17 +159,44 @@ def create_app(
                   redoc_url=None, openapi_url=None if settings.auth_enabled else "/openapi.json")
     app.add_middleware(
         CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"], max_age=600,
+        allow_headers=["Authorization", "Content-Type"], expose_headers=["X-Request-ID"], max_age=600,
     )
+
+    @app.middleware("http")  # added after CORS, so it is the outermost layer and sees every request
+    async def request_logging(request: Request, call_next):
+        rid = clean_request_id(request.headers.get("x-request-id")) or uuid.uuid4().hex[:16]
+        token = request_id_var.set(rid)
+        started, status = time.perf_counter(), 500
+        try:
+            try:
+                response = await call_next(request)
+            except Exception:
+                # Handled here, inside the request's context: Starlette's outermost error handler runs after the request id is gone.
+                log.exception("unhandled error", extra={"method": request.method, "path": request.url.path[:200]})
+                response = JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "Something went wrong. Please try again.",
+                                                                            "agent": None, "request_id": rid}})
+            status = response.status_code
+            response.headers["X-Request-ID"] = rid
+            return response
+        finally:
+            path = request.url.path[:200]  # never the query string
+            quiet = path == "/api/health" and status < 400  # the platform pings this every few seconds
+            http_log.log(logging.DEBUG if quiet else logging.ERROR if status >= 500 else logging.INFO, "request",
+                         extra={"method": request.method, "path": path, "status": status, "duration_ms": round((time.perf_counter() - started) * 1000),
+                                "user_id": getattr(request.state, "user_id", None)})
+            request_id_var.reset(token)
 
     @app.exception_handler(AppError)
     async def app_error_handler(_: Request, exc: AppError):
+        if exc.status_code >= 500:  # our side or an upstream provider failed: worth a log line even though the client gets a clean message
+            log.warning("server-side error", extra={"error_code": exc.code, "agent": getattr(exc, "agent", None), "error": exc.message[:300]})
         return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
     @app.exception_handler(Exception)
     async def unhandled_error_handler(request: Request, exc: Exception):
-        log.exception("Unhandled error on %s %s", request.method, request.url.path)
-        return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "Something went wrong. Please try again.", "agent": None}})
+        log.exception("unhandled error", extra={"method": request.method, "path": request.url.path[:200]})
+        return JSONResponse(status_code=500, content={"error": {"code": "internal_error", "message": "Something went wrong. Please try again.",
+                                                                 "agent": None, "request_id": request_id_var.get()}})
 
     # ================================================================== public
     @app.get("/api/health")
@@ -253,6 +291,7 @@ def create_app(
         day = datetime.now(timezone.utc).date()
         allowed, used = await asyncio.to_thread(require_billing().try_use, user.id, day, settings.daily_analysis_limit)
         if not allowed:
+            log.info("daily limit reached", extra={"user_id": user.id, "used": used, "limit": settings.daily_analysis_limit})
             raise UsageLimitError(f"Daily limit of {settings.daily_analysis_limit} new analyses reached ({used} used). It resets at 00:00 UTC. "
                                   "Matches that were already analysed are always available.")
         return day
@@ -285,7 +324,9 @@ def create_app(
             raise AnalysisInProgressError("Another analysis is still running for your account. Wait for it to finish.")
         cached = await asyncio.to_thread(store.get_analysis, body.match_id)
         if cached is not None:  # this match was already analysed: serve that analysis, no LLM calls, no allowance used
-            return {"job_id": jobs.start_cached(body.match_id, user.id, cached).id}
+            job = jobs.start_cached(body.match_id, user.id, cached)
+            log.info("analysis served from stored copy", extra={"match_id": body.match_id, "user_id": user.id, "job_id": job.id})
+            return {"job_id": job.id}
         orch = get_orchestrator()
         day = await spend_allowance(user)
         job = jobs.start(orch, body.match_id, user.id, on_failure=lambda: release(user.id, day))
