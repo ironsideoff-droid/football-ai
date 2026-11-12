@@ -1,3 +1,4 @@
+import { accessToken } from "./auth";
 import type { Evaluation, Health, Job, MatchSummary } from "../types";
 
 export class ApiError extends Error {
@@ -9,7 +10,11 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, { headers: { "Content-Type": "application/json" }, ...init });
+    const token = await accessToken();
+    res = await fetch(`/api${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
   } catch {
     throw new ApiError("Cannot reach the backend. Start it with: uvicorn main:app --reload (in the backend folder).");
   }
@@ -29,3 +34,14 @@ export const startAnalysis = (matchId: number) =>
 export const getJob = (jobId: string) => request<Job>(`/jobs/${jobId}`);
 export const getEvaluation = () => request<Evaluation>("/evaluation");
 export const refreshResults = () => request<{ results_recorded: number[] }>("/evaluation/refresh", { method: "POST" });
+
+export interface Me {
+  email: string;
+  subscribed: boolean;
+  has_billing_account: boolean;
+  subscription: { status: string; current_period_end: string | null; cancel_at_period_end: boolean };
+}
+export const getMe = () => request<Me>("/me");
+export const startCheckout = () => request<{ url: string }>("/billing/checkout", { method: "POST" });
+export const openPortal = () => request<{ url: string }>("/billing/portal", { method: "POST" });
+export const syncBilling = () => request<{ subscribed: boolean; status: string }>("/billing/sync", { method: "POST" });

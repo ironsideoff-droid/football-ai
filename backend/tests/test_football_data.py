@@ -114,7 +114,7 @@ def test_api_accepts_up_to_30_days_and_rejects_more(tmp_path):
     from main import create_app
     from tests.test_workflow_and_api import FakeProvider
     ctx = __import__("tests.conftest", fromlist=["x"]).context.__wrapped__()
-    app = create_app(Settings(groq_keys=("a", "b", "c"), groq_models=("m",) * 3, football_api_key="f", predictions_dir=str(tmp_path)), FakeProvider(ctx))
+    app = create_app(Settings(groq_keys=("a", "b", "c"), groq_models=("m",) * 3, football_api_key="f", auth_disabled=True, predictions_dir=str(tmp_path)), FakeProvider(ctx))
     c = TestClient(app)
     assert c.get("/api/fixtures?days=30").status_code == 200 and c.get("/api/fixtures").status_code == 200
     assert c.get("/api/fixtures?days=31").status_code == 422

@@ -131,3 +131,15 @@ a { color: var(--teal); }
 .prose, .scenario p, .finding { overflow-wrap: anywhere; }
 
 .filters { display: flex; gap: 16px; flex-wrap: wrap; }
+
+/* accounts */
+.topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.account { display: flex; gap: 14px; align-items: center; padding-top: 6px; }
+.linkish { background: none; border: 0; color: var(--amber); cursor: pointer; padding: 0; text-decoration: underline; }
+.authbox { max-width: 420px; margin: 0 auto; }
+.authbox form { display: grid; gap: 14px; margin: 14px 0; }
+.authbox label { display: grid; gap: 6px; font-size: 0.875rem; color: var(--muted); }
+.authbox input { background: var(--panel-2); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; color: var(--chalk); font: inherit; }
+.authbox a { color: var(--amber); }
+.authbox .analyze { width: 100%; }
+.price { font: 700 2.6rem/1 var(--display); margin: 8px 0 14px; }

@@ -31,6 +31,17 @@ class Settings:
     dc_rho: float = -0.10
     bp_share: float = 0.10
     predictions_dir: str = "data_store"
+    # accounts & billing
+    auth_disabled: bool = False  # local development only; production fails closed
+    supabase_url: str = ""
+    supabase_anon_key: str = ""  # public (publishable) key
+    supabase_service_key: str = ""  # secret: server-side writes of subscription state
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_id: str = ""  # optional; otherwise a 9.99 EUR/month price is created inline
+    app_url: str = ""
+    price_cents: int = 999
+    price_currency: str = "eur"
 
     def agent(self, index: int) -> AgentConfig:
         return AgentConfig(AGENT_NAMES[index], self.groq_keys[index], self.groq_models[index])
@@ -58,5 +69,13 @@ def load_settings() -> Settings:
         goal_model=(env("GOAL_MODEL") or "poisson").strip().lower() if (env("GOAL_MODEL") or "poisson").strip().lower() in ("poisson", "dixon_coles", "bivariate") else "poisson",
         dc_rho=float(env("DC_RHO") or -0.10),
         bp_share=float(env("BP_SHARE") or 0.10),
+        auth_disabled=(env("AUTH_DISABLED", "false").lower() == "true"),
+        supabase_url=(env("SUPABASE_URL") or "").strip().rstrip("/"),
+        supabase_anon_key=(env("SUPABASE_ANON_KEY") or "").strip(),
+        supabase_service_key=(env("SUPABASE_SERVICE_KEY") or "").strip(),
+        stripe_secret_key=(env("STRIPE_SECRET_KEY") or "").strip(),
+        stripe_webhook_secret=(env("STRIPE_WEBHOOK_SECRET") or "").strip(),
+        stripe_price_id=(env("STRIPE_PRICE_ID") or "").strip(),
+        app_url=(env("APP_URL") or env("RENDER_EXTERNAL_URL") or "").strip().rstrip("/"),
         predictions_dir=(env("PREDICTIONS_DIR") or str(Path(__file__).resolve().parent / "data_store")),
     )

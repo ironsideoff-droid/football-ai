@@ -149,7 +149,7 @@ def test_prediction_normalisation_and_divergence_warning(context, news_bundle):
 # ---------------------------------------------------------------- API
 @pytest.fixture
 def settings(tmp_path):
-    return Settings(groq_keys=("a", "b", "c"), groq_models=("m",) * 3, football_api_key="f", predictions_dir=str(tmp_path / "ds"))
+    return Settings(groq_keys=("a", "b", "c"), groq_models=("m",) * 3, football_api_key="f", auth_disabled=True, predictions_dir=str(tmp_path / "ds"))
 
 
 def test_health_never_exposes_keys(settings):
@@ -159,10 +159,10 @@ def test_health_never_exposes_keys(settings):
 
 
 def test_missing_keys_give_clear_503(tmp_path):
-    s = Settings(groq_keys=("", "b", ""), groq_models=("m",) * 3, football_api_key="f", predictions_dir=str(tmp_path))
+    s = Settings(groq_keys=("", "b", ""), groq_models=("m",) * 3, football_api_key="f", auth_disabled=True, predictions_dir=str(tmp_path))
     resp = TestClient(create_app(s)).post("/api/analyze", json={"match_id": 1})
     assert resp.status_code == 503 and "GROQ_API_KEY_1" in resp.json()["error"]["message"]
-    s2 = Settings(groq_keys=("a",) * 3, groq_models=("m",) * 3, football_api_key="", predictions_dir=str(tmp_path))
+    s2 = Settings(groq_keys=("a",) * 3, groq_models=("m",) * 3, football_api_key="", auth_disabled=True, predictions_dir=str(tmp_path))
     assert TestClient(create_app(s2)).get("/api/fixtures").status_code == 503
 
 
