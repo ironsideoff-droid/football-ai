@@ -26,7 +26,7 @@ def make_app(tmp_path, sub_status=None, **over):
         path = req.url.path
         if path == "/auth/v1/user":
             return httpx.Response(200, json={"id": UID, "email": "a@b.c"}) if req.headers["authorization"] == "Bearer good-token-0123456789" else httpx.Response(401, json={})
-        if path == "/rest/v1/subscriptions":
+        if path == "/rest/v1/tactiq_subscriptions":
             if req.method == "GET":
                 q = req.url.params
                 rows = [r for r in db["subs"].values() if ("user_id" not in q or q["user_id"] == f"eq.{r['user_id']}") and ("stripe_customer_id" not in q or q["stripe_customer_id"] == f"eq.{r['stripe_customer_id']}")]
@@ -35,7 +35,7 @@ def make_app(tmp_path, sub_status=None, **over):
             assert "service" in req.headers["apikey"]
             db["subs"].setdefault(body["user_id"], {}).update(body)
             return httpx.Response(201)
-        if path == "/rest/v1/stripe_events":
+        if path == "/rest/v1/tactiq_stripe_events":
             if req.method == "GET":
                 return httpx.Response(200, json=[{"id": i} for i in db["events"] if req.url.params["id"] == f"eq.{i}"])
             db["events"].add(json.loads(req.content)["id"])

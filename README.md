@@ -155,7 +155,7 @@ backtesting without look-ahead, store immutability, API error handling, the full
 ## Accounts and subscription (9.99 EUR / month)
 
 * **Login:** Supabase Auth (email + password). The browser gets the public Supabase URL and publishable key from `/api/config`; the backend verifies every request's access token with Supabase.
-* **Database:** table `subscriptions` (one row per user, row-level security: users can only read their own row; only the backend writes) and `stripe_events` (webhook de-duplication). The SQL is in `supabase/migrations/`.
+* **Database:** table `tactiq_subscriptions` (one row per user, row-level security: users can only read their own row; only the backend writes) and `tactiq_stripe_events` (webhook de-duplication). The SQL is in `supabase/migrations/`.
 * **Payments:** Stripe Checkout in subscription mode (9.99 EUR per month, created inline unless `STRIPE_PRICE_ID` is set) and the Stripe customer portal for cancelling or changing the card.
 * **Access:** every data and analysis endpoint needs a signed-in user with an `active` or `trialing` subscription. The server fails closed: without Supabase configuration it refuses requests. `AUTH_DISABLED=true` is for local development only.
 * **Subscription state** is always re-read from Stripe when a webhook arrives, so event order does not matter. If a webhook is late, the app asks Stripe directly after you return from checkout.

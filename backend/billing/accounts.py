@@ -67,7 +67,7 @@ class Accounts:
     async def get_subscription(self, user: User) -> dict:
         """Reads the user's own row with their own token (row-level security applies)."""
         r = await self.http.get(
-            f"{self.s.supabase_url}/rest/v1/subscriptions",
+            f"{self.s.supabase_url}/rest/v1/tactiq_subscriptions",
             params={"select": "status,current_period_end,cancel_at_period_end,stripe_customer_id", "user_id": f"eq.{user.id}"},
             headers={"apikey": self.s.supabase_anon_key, "Authorization": f"Bearer {user.token}"},
         )
@@ -78,7 +78,7 @@ class Accounts:
 
     async def upsert_subscription(self, user_id: str, fields: dict) -> None:
         r = await self.http.post(
-            f"{self.s.supabase_url}/rest/v1/subscriptions",
+            f"{self.s.supabase_url}/rest/v1/tactiq_subscriptions",
             params={"on_conflict": "user_id"},
             headers={**self._service_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
             json={"user_id": user_id, **fields, "updated_at": datetime.now(timezone.utc).isoformat()},
@@ -88,7 +88,7 @@ class Accounts:
 
     async def user_for_customer(self, customer_id: str) -> Optional[str]:
         r = await self.http.get(
-            f"{self.s.supabase_url}/rest/v1/subscriptions",
+            f"{self.s.supabase_url}/rest/v1/tactiq_subscriptions",
             params={"select": "user_id", "stripe_customer_id": f"eq.{customer_id}"},
             headers=self._service_headers(),
         )
@@ -97,14 +97,14 @@ class Accounts:
 
     async def event_seen(self, event_id: str) -> bool:
         r = await self.http.get(
-            f"{self.s.supabase_url}/rest/v1/stripe_events", params={"select": "id", "id": f"eq.{event_id}"},
+            f"{self.s.supabase_url}/rest/v1/tactiq_stripe_events", params={"select": "id", "id": f"eq.{event_id}"},
             headers=self._service_headers(),
         )
         return bool(r.status_code < 400 and r.json())
 
     async def record_event(self, event_id: str, etype: str) -> None:
         await self.http.post(
-            f"{self.s.supabase_url}/rest/v1/stripe_events",
+            f"{self.s.supabase_url}/rest/v1/tactiq_stripe_events",
             headers={**self._service_headers(), "Prefer": "resolution=ignore-duplicates,return=minimal"},
             json={"id": event_id, "type": etype},
         )
