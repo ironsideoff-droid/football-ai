@@ -1,33 +1,76 @@
 # FOOTBALL AI 2.0
 
-A personal football match prediction app. Three independent Groq LLM agents analyse a fixture; the Chief Predictor
-then runs a vectorised NumPy Monte Carlo of **exactly 50,000 simulated matches** with uncertain parameters, scenarios
-and a minute-by-minute match model, and writes the final prediction. No database, no login, runs locally.
+Football match predictions as a paid web app (EUR 9.99 / month). Three independent Groq LLM agents analyse a fixture; the
+Chief Predictor then runs a vectorised NumPy Monte Carlo of **exactly 50,000 simulated matches** with uncertain parameters,
+scenarios and a minute-by-minute match model, and writes the final prediction. Every prediction is stored once, before
+kickoff, and can never be edited; the track record is public.
 
 ```
-Browser (React) ──/api──▶ FastAPI
-                            ├─▶ football-data.org   fixtures, results, standings, head-to-head        (real data only)
-                            ├─▶ Google News RSS     headlines + publisher + publication time          (real data only)
-                            │
-                            ├─▶ Agent 1  Statistical Researcher        (Groq key 1) ┐ run concurrently
-                            ├─▶ Agent 2  Football Intelligence & News  (Groq key 2) ┘
-                            └─▶ Agent 3  Chief Predictor               (Groq key 3)
-                                  phase 1: audits both reports, proposes bounded adjustments + matchup scenarios
-                                  engine : 50,000 vectorised simulations (parameter engine → scenario engine → goal model)
-                                  phase 2: interprets the simulation, writes the final prediction
-                                  backend: caps confidence by data quality, stores the prediction once (immutable)
+Browser (React, Render static site) ──Bearer JWT──▶ FastAPI (Render web service)
+   │  sign-in: Supabase Auth                          ├─▶ Supabase Postgres  predictions · results · analyses · subscriptions
+   │  pay: Stripe Checkout (hosted)                   ├─▶ Stripe             checkout, billing portal, signed webhooks
+   └──────────────────────────────────────────────────├─▶ football-data.org  fixtures, results, standings, head-to-head
+                                                      ├─▶ Google News RSS    headlines + publisher + publication time
+                                                      ├─▶ Agent 1  Statistical Researcher        (Groq key 1) ┐ run concurrently
+                                                      ├─▶ Agent 2  Football Intelligence & News  (Groq key 2) ┘
+                                                      └─▶ Agent 3  Chief Predictor               (Groq key 3)
+                                                            phase 1: audits both reports, proposes bounded adjustments + scenarios
+                                                            engine : 50,000 vectorised simulations
+                                                            phase 2: interprets the simulation, writes the final prediction
+                                                            backend: caps confidence by data quality, stores the prediction once
+Render cron job (every 3 h) ── records the final score of every predicted match
 ```
 
-## Requirements
-Python 3.10+, Node.js 18+, three Groq API keys (one per account), a free football-data.org token.
+## Who can do what
+| | Visitor | Free account | Subscriber | Operator (`X-Admin-Secret`) |
+|---|---|---|---|---|
+| Track record (`/api/evaluation`) | yes | yes | yes | yes |
+| Upcoming fixtures | | yes | yes | yes |
+| Run / open analyses, prediction list | | | yes | |
+| Record results, backtest | | | | yes |
 
-## Install and run
+* A subscription is active when Stripe says `active` or `trialing`; it is written **only** by signature-verified webhooks.
+  Returning from Checkout grants nothing by itself; the UI waits for the webhook.
+* **One analysis per match.** The first subscriber to analyse a fixture runs the agents; the full analysis is stored with the
+  immutable prediction and served to everyone after that: no extra LLM calls, no allowance used, and everyone sees the analysis
+  that is actually tracked. New analyses are limited per user per UTC day (`DAILY_ANALYSIS_LIMIT`, default 30); a failed
+  analysis gives the allowance back. At most `MAX_CONCURRENT_ANALYSES` run at once, and a user can have one running job.
+
+## Deploy to production
+Do it in **test mode** first (Stripe test keys, a test card), then switch the keys.
+
+1. **Supabase** (a new project)
+   * Apply `supabase/migrations/20261112000000_production_schema.sql` (SQL editor, or `supabase db push`). It creates the tables,
+     makes the prediction history append-only with triggers, and locks every table away from Supabase's public REST API (RLS on, no policies).
+   * Authentication > Sign In / Providers: keep Email on and **Confirm email** on. URL Configuration: set *Site URL* to your web app URL and add it to *Redirect URLs*.
+   * Collect: `SUPABASE_URL`, the **publishable (anon) key** (for the web app), and the **Transaction pooler** connection string
+     (Connect > port 6543) as `DATABASE_URL`. Never put the service-role key or the database password in the web app.
+     New projects sign tokens with asymmetric keys; nothing else is needed. Only old projects with the legacy HS256 secret need `SUPABASE_JWT_SECRET`.
+2. **Stripe**
+   * Product catalogue: a product with a **recurring EUR 9.99 / month** price. Its id (`price_...`) is `STRIPE_PRICE_ID`.
+   * Settings > Billing > Customer portal: enable it (cancel subscription, update payment method, invoices).
+   * Developers > Webhooks: add `https://<api domain>/api/stripe/webhook` with the events `checkout.session.completed`,
+     `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`. Its signing secret is `STRIPE_WEBHOOK_SECRET`.
+   * EU customers: decide on VAT. Turn on Stripe Tax, set the price's tax behaviour, then set `STRIPE_AUTOMATIC_TAX=true`.
+3. **Render**: New > Blueprint > this repository (`render.yaml`). It creates the API (Docker), the web app (static site) and the results cron job,
+   and asks for the secrets. Because each service needs the other's URL, create it once, then fill `APP_URL` and `CORS_ORIGINS`
+   (the web app's URL) on the API and `VITE_API_URL` (the API's URL) on the web app, and redeploy. Custom domains make this tidy.
+   `GET /api/health` returns 503 `misconfigured` if a required setting is missing, so a bad deploy fails its health check instead of going live broken.
+4. Sign up in the deployed app, subscribe with Stripe's test card `4242 4242 4242 4242`, confirm the button unlocks within a few seconds, analyse a match, cancel in the portal.
+
+### Before you take real money
+* **Terms of Service, Privacy Policy and a refund / right-of-withdrawal policy** for EU consumers. Set `VITE_TERMS_URL` / `VITE_PRIVACY_URL` and the footer links appear. The footer already carries a "not betting advice" disclaimer.
+* **Data licences.** football-data.org ties an API key to one application and domain, requires the visible line "Football data provided by the Football-Data.org API" (in the footer) and says team logos belong to their owners. Check its pricing page: a paid product
+  almost certainly needs a paid plan, and the free tier's 10 requests/minute is shared by *all* your users. Check Groq's terms and rate limits for production use and the terms of the Google News RSS feed too.
+* Decide whether to keep showing team crests (they come from football-data.org URLs and are copyrighted by the clubs).
+
+## Local development (no login, no Stripe, no database)
 ```bash
 # backend
 cd backend
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env                                  # Windows: copy .env.example .env  → fill in the keys
+pip install -r requirements-dev.txt
+cp .env.example .env                                  # keep AUTH_ENABLED=false; fill in the Groq and football-data keys
 uvicorn main:app --reload                             # http://127.0.0.1:8000
 
 # frontend (second terminal)
@@ -35,11 +78,15 @@ cd frontend
 npm install
 npm run dev                                           # http://localhost:5173
 ```
-Pick a match, press **Analyze**. Tests: `cd backend && pytest` (all external APIs and LLM answers are mocked; no paid calls).
+`AUTH_ENABLED` defaults to **true** when unset (secure by default), so an existing `backend/.env` needs the line `AUTH_ENABLED=false` for local work.
+With it off there is no login, nobody is billed, and predictions go to `backend/data_store/` as before. The frontend runs in the same
+mode when `VITE_SUPABASE_URL` is empty. To try the real login locally, fill `frontend/.env.local` (see `frontend/.env.example`) and the production block of `backend/.env`.
 
-## Configuration (`backend/.env`)
-See `.env.example`: `GROQ_API_KEY_1..3`, `GROQ_MODEL_1..3`, `FOOTBALL_API_KEY`, `NEWS_ENABLED`, `GOAL_MODEL`
-(`poisson` default), `DC_RHO`, `BP_SHARE`, `PREDICTIONS_DIR`. `GET /api/health` shows what is configured (never the keys).
+Tests: `cd backend && pytest`. To also run the Postgres tests against the real migration, point `TEST_DATABASE_URL` at any
+Postgres where a scratch database may be created, e.g. `TEST_DATABASE_URL=postgresql://postgres@localhost:5432/postgres pytest`.
+
+## Configuration
+All settings are documented in `backend/.env.example` (production: set them in the Render dashboard). In local development `GET /api/health` shows what is configured (never the keys); in production it returns only `{"status": "ok"}`.
 
 ## Changes from v1
 | Area | v1 | 2.0 |
@@ -129,15 +176,34 @@ machine a full simulation takes about 0.05 s.
 and backtest will accumulate.
 
 ## API
-`GET /api/health` · `GET /api/fixtures?days=14&competitions=PL,PD` (up to 30 days; split into 10-day requests) · `GET /api/matches/{id}` · `POST /api/analyze` ·
-`POST /api/analyze/start` + `GET /api/jobs/{id}` (progress, used by the UI) · `GET /api/predictions` · `GET /api/evaluation` ·
-`POST /api/evaluation/refresh` · `GET /api/backtest`. Errors: `{"error": {"code", "message", "agent"}}`.
+Public: `GET /api/health` · `GET /api/evaluation` · `POST /api/stripe/webhook` (signature-verified).
+Signed in (`Authorization: Bearer <Supabase access token>`): `GET /api/fixtures?days=14&competitions=PL,PD` · `GET /api/billing/status` ·
+`POST /api/billing/checkout` · `POST /api/billing/portal` · `GET /api/jobs/{id}` (your own jobs only).
+Subscribers: `POST /api/analyze/start` (progress via the job) · `POST /api/analyze` · `GET /api/predictions` · `GET /api/matches/{id}`.
+Operator (`X-Admin-Secret`): `POST /api/evaluation/refresh` · `GET /api/backtest`.
+Errors: `{"error": {"code", "message", "agent"}}`; `401 unauthorized`, `402 subscription_required`, `429 usage_limit`.
 
 ## Tests
-`cd backend && pytest` (122 tests): each agent, Groq errors, football-API errors, news failures, invalid/missing data, parameter
+`cd backend && pytest`: each agent, Groq errors, football-API errors, news failures, invalid/missing data, parameter
 sampling and correlations, scenario normalisation, scenario-conditioned results, exactly 50,000 simulations, vectorisation
 (AST check plus an RNG-call-count check), goal distributions, outcome aggregation, probability normalisation, metrics,
 backtesting without look-ahead, store immutability, API error handling, the full workflow.
+Production layer: JWT verification (expiry, audience, issuer, forged and algorithm-confusion tokens), access control per plan, per-user daily limits and
+allowance refunds, one-analysis-per-match caching, job ownership, Stripe webhooks (signature, replay, idempotency, out-of-order delivery, retries),
+checkout and portal parameters, and the Postgres stores against the real migration (append-only triggers, concurrent writers, RLS lock-out).
+
+## Logging
+The API writes one **JSON object per line** to stdout in production (readable text in local development), which is what Render's
+Logs page and log drains expect. Set `LOG_LEVEL` (`INFO` default, `DEBUG` adds every football-data.org call) and `LOG_FORMAT` (`json` | `text`).
+
+* Every request gets a **request id** (also returned in the `X-Request-ID` header, and shown to users as "reference …" on server errors).
+  It is attached to every line written while handling the request, including the background analysis it starts, so a support
+  question becomes: search the logs for that id.
+* Logged: requests (method, path without query string, status, duration, user id), analysis lifecycle (queued → started → each step with duration → finished),
+  Groq calls (agent, model, duration, token counts, retries), football-data.org problems, Stripe webhook outcomes, auth rejections (reason only), admin denials, server-side errors with tracebacks.
+* **Never logged:** tokens, API keys, prompts, model output, email addresses, query strings. A scrubber also masks bearer tokens, JWTs, Stripe and Groq keys,
+  passwords in URLs and email addresses in everything that is written, as a second line of defence.
+* Useful searches on Render: `"level":"ERROR"`, `"msg":"job failed"`, `"msg":"stripe webhook"`, `"user_id":"<uuid>"`, `"request_id":"<id>"`.
 
 ## Known limitations
 * **Not tested live.** The build environment could not reach Groq, football-data.org or Google News, so every automated test uses mocks.
@@ -149,5 +215,5 @@ backtesting without look-ahead, store immutability, API error handling, the full
 * News = **headlines only** from an aggregator, not article bodies; nothing is independently verified, so exact quotes are limited to what a headline contains.
 * Time-segment and event constants are literature approximations; adjustment and scenario caps are guard-rails, not fitted.
 * The LLM agents are not covered by the backtest; their value shows only in the track record, which needs many finished matches.
-* Prediction history is stored on local disk. On hosts with an ephemeral disk (e.g. Render free plan) it is lost on redeploy.
-* The `Dockerfile` and `render.yaml` from v1 are kept; deployment is optional.
+* The API runs as a single process (`render.yaml` pins one instance): running jobs and the concurrency limiter live in memory. Scaling out needs a shared job queue first.
+* Not yet in place: alerting on the error logs (e.g. a Render log stream into Sentry or Better Stack), IP-based rate limiting of the public endpoints, and database backups beyond Supabase's defaults.

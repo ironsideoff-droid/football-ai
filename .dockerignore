@@ -1,0 +1,9 @@
+.git
+frontend
+supabase
+**/__pycache__
+**/.pytest_cache
+backend/.env
+backend/data_store
+backend/tests
+backend/.venv

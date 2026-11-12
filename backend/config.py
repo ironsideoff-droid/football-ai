@@ -31,6 +31,21 @@ class Settings:
     dc_rho: float = -0.10
     bp_share: float = 0.10
     predictions_dir: str = "data_store"
+    # --- production (all optional for local development, where auth_enabled is False) ---
+    auth_enabled: bool = False
+    database_url: str = ""
+    supabase_url: str = ""
+    supabase_jwt_secret: str = ""  # only for projects that still use the legacy HS256 secret; new projects use JWKS
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_id: str = ""
+    stripe_automatic_tax: bool = False
+    app_url: str = "http://localhost:5173"  # public URL of the frontend, used for Stripe return links
+    admin_secret: str = ""  # protects /api/admin/* (X-Admin-Secret header)
+    daily_analysis_limit: int = 30
+    max_concurrent_analyses: int = 3
+    log_level: str = "INFO"
+    log_format: str = ""  # "json" | "text" | "" (auto: json when auth_enabled, text for local development)
 
     def agent(self, index: int) -> AgentConfig:
         return AgentConfig(AGENT_NAMES[index], self.groq_keys[index], self.groq_models[index])
@@ -43,6 +58,39 @@ class Settings:
         if len(set(keys)) < len(keys):
             return "Two or more GROQ_API_KEY_* values are identical; use three different Groq accounts."
         return None
+
+
+    @property
+    def effective_log_format(self) -> str:
+        return self.log_format if self.log_format in ("json", "text") else ("json" if self.auth_enabled else "text")
+
+    def production_problems(self) -> list[str]:
+        """Configuration that is missing for a real deployment. Empty when everything needed is set."""
+        if not self.auth_enabled:
+            return []
+        need = {
+            "DATABASE_URL": self.database_url, "SUPABASE_URL": self.supabase_url, "STRIPE_SECRET_KEY": self.stripe_secret_key,
+            "STRIPE_WEBHOOK_SECRET": self.stripe_webhook_secret, "STRIPE_PRICE_ID": self.stripe_price_id,
+            "ADMIN_SECRET": self.admin_secret, "FOOTBALL_API_KEY": self.football_api_key,
+        }
+        problems = [f"{k} is not set" for k, v in need.items() if not v]
+        problems += [f"{k} is not set" for k in self.missing_groq()]
+        if self.app_url.startswith("http://localhost"):
+            problems.append("APP_URL still points at localhost")
+        return problems
+
+
+def _flag(value: str | None, default: bool) -> bool:
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _int(value: str | None, default: int) -> int:
+    try:
+        return int(value) if value and value.strip() else default
+    except ValueError:
+        return default
 
 
 def load_settings() -> Settings:
@@ -59,4 +107,20 @@ def load_settings() -> Settings:
         dc_rho=float(env("DC_RHO") or -0.10),
         bp_share=float(env("BP_SHARE") or 0.10),
         predictions_dir=(env("PREDICTIONS_DIR") or str(Path(__file__).resolve().parent / "data_store")),
+        # Secure by default: the API requires a login and a subscription unless AUTH_ENABLED=false is set explicitly.
+        auth_enabled=_flag(env("AUTH_ENABLED"), True),
+        database_url=(env("DATABASE_URL") or "").strip(),
+        supabase_url=(env("SUPABASE_URL") or "").strip().rstrip("/"),
+        supabase_jwt_secret=(env("SUPABASE_JWT_SECRET") or "").strip(),
+        stripe_secret_key=(env("STRIPE_SECRET_KEY") or "").strip(),
+        stripe_webhook_secret=(env("STRIPE_WEBHOOK_SECRET") or "").strip(),
+        stripe_price_id=(env("STRIPE_PRICE_ID") or "").strip(),
+        stripe_automatic_tax=_flag(env("STRIPE_AUTOMATIC_TAX"), False),
+        app_url=(env("APP_URL") or "http://localhost:5173").strip().rstrip("/"),
+        admin_secret=(env("ADMIN_SECRET") or "").strip(),
+        daily_analysis_limit=_int(env("DAILY_ANALYSIS_LIMIT"), 30),
+        max_concurrent_analyses=max(1, _int(env("MAX_CONCURRENT_ANALYSES"), 3)),
+        log_level=((env("LOG_LEVEL") or "INFO").strip().upper() or "INFO"),
+        log_format=(env("LOG_FORMAT") or "").strip().lower(),
+        **({"cors_origins": tuple(o.strip() for o in env("CORS_ORIGINS", "").split(",") if o.strip())} if (env("CORS_ORIGINS") or "").strip() else {}),
     )

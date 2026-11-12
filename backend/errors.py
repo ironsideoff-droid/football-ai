@@ -64,3 +64,27 @@ class StoreError(AppError):
 
 class ImmutablePredictionError(AppError):
     status_code, code = 409, "prediction_immutable"
+
+
+class AuthError(AppError):
+    status_code, code = 401, "unauthorized"
+
+
+class ForbiddenError(AppError):
+    status_code, code = 403, "forbidden"
+
+
+class SubscriptionRequiredError(AppError):
+    status_code, code = 402, "subscription_required"
+
+
+class UsageLimitError(AppError):
+    status_code, code = 429, "usage_limit"
+
+
+class BillingError(AppError):
+    status_code, code = 400, "billing_error"
+
+
+class AnalysisInProgressError(AppError):
+    status_code, code = 409, "analysis_in_progress"

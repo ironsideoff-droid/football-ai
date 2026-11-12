@@ -5,6 +5,7 @@ To switch provider later, implement `FootballProvider` and pass it to the app.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from datetime import date, timedelta
@@ -25,6 +26,8 @@ from football_data.fixtures import normalize_fixtures, normalize_match
 from football_data.source_manager import api_source, assess_quality
 from football_data.statistics import extract_standings, summarize_h2h, summarize_team_matches
 from schemas.match import MatchContext, MatchSummary
+
+log = logging.getLogger("football_ai.football_data")
 
 UNAVAILABLE = {
     "injuries_suspensions": "unavailable: football-data.org does not provide injury or suspension data",
@@ -79,16 +82,23 @@ class FootballDataOrgProvider(FootballProvider):
         hit = self._cache.get(key)
         if hit and time.monotonic() - hit[0] < self._ttl:
             return hit[1]
+        t0 = time.monotonic()
+        route = re.sub(r"\d+", "{id}", path)  # log the endpoint, not the ids
         for attempt in range(2):
             try:
                 resp = await self._http.get(path, params=params)
             except httpx.HTTPError as exc:
+                log.warning("football-data unreachable", extra={"route": route, "error_type": type(exc).__name__})
                 raise FootballDataError(f"Could not reach the football data API: {exc}") from exc
             if resp.status_code == 429 and attempt == 0:
                 found = re.search(r"(\d+)\s*seconds", resp.text)
-                await self._sleep(min(int(found.group(1)) if found else 10, 30) + 1)
+                wait = min(int(found.group(1)) if found else 10, 30) + 1
+                log.warning("football-data rate limit; waiting then retrying once", extra={"route": route, "wait_s": wait})
+                await self._sleep(wait)
                 continue
             break
+        log.log(logging.WARNING if resp.status_code >= 400 else logging.DEBUG, "football-data call",
+                extra={"route": route, "status": resp.status_code, "duration_ms": round((time.monotonic() - t0) * 1000)})
         if resp.status_code == 401:
             raise FootballAuthError("FOOTBALL_API_KEY was rejected by football-data.org.")
         if resp.status_code == 403:

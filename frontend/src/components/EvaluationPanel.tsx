@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { getEvaluation, refreshResults, ApiError } from "../services/api";
+import { useEffect, useState } from "react";
+import { getEvaluation, ApiError } from "../services/api";
 import type { EvalReport, Evaluation } from "../types";
 
 const pct = (v?: number) => (v === undefined || v === null ? "–" : `${(v * 100).toFixed(1)}%`);
@@ -12,22 +12,18 @@ function Row({ label, r }: { label: string; r: EvalReport | null }) {
   );
 }
 
-export default function EvaluationPanel() {
+export default function EvaluationPanel({ defaultOpen = false }: { defaultOpen?: boolean }) {
   const [data, setData] = useState<Evaluation | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const load = async (refresh: boolean) => {
-    setBusy(true); setError(null);
-    try {
-      if (refresh) await refreshResults();
-      setData(await getEvaluation());
-    } catch (e) { setError((e as ApiError).message); }
-    setBusy(false);
+  const load = async () => {
+    setError(null);
+    try { setData(await getEvaluation()); } catch (e) { setError((e as ApiError).message); }
   };
+  useEffect(() => { if (defaultOpen) void load(); }, [defaultOpen]);
 
   return (
-    <details className="panel" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !data) void load(false); }}>
+    <details className="panel" open={defaultOpen || undefined} onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !data) void load(); }}>
       <summary>Track record</summary>
       {error && <p className="warn">{error}</p>}
       {data && (
@@ -53,7 +49,6 @@ export default function EvaluationPanel() {
           <p className="muted small">{data.storage_note}</p>
         </>
       )}
-      <button className="analyze secondary" disabled={busy} onClick={() => void load(true)}>{busy ? "Checking…" : "Check finished matches"}</button>
     </details>
   );
 }

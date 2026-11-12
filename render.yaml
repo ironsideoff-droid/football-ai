@@ -1,17 +1,41 @@
+# Render Blueprint: API (Docker), web app (static site) and a cron job that records match results.
+# Values marked `sync: false` are asked for when the Blueprint is created; they are never stored in git.
 services:
+  # ------------------------------------------------------------------ API
   - type: web
-    name: football-ai
+    name: football-ai-api
     runtime: docker
-    plan: free
+    dockerfilePath: ./Dockerfile
+    plan: starter            # always-on; the free plan sleeps after 15 minutes, which breaks webhooks and running analyses
+    numInstances: 1          # analysis jobs live in process memory: do not scale out without moving them to a shared queue
     healthCheckPath: /api/health
+    autoDeploy: true
     envVars:
+      - key: AUTH_ENABLED
+        value: "true"
+      - key: APP_URL                 # https://<your web app domain>, used for Stripe return links
+        sync: false
+      - key: CORS_ORIGINS            # same URL as APP_URL (comma-separated if you have several)
+        sync: false
+      - key: DATABASE_URL            # Supabase > Connect > Transaction pooler connection string (port 6543)
+        sync: false
+      - key: SUPABASE_URL            # https://<project-ref>.supabase.co
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET   # signing secret of the webhook endpoint https://<api domain>/api/stripe/webhook
+        sync: false
+      - key: STRIPE_PRICE_ID         # the recurring EUR 9.99 / month price
+        sync: false
+      - key: STRIPE_AUTOMATIC_TAX
+        value: "false"               # "true" once Stripe Tax is configured
+      - key: ADMIN_SECRET
+        generateValue: true
       - key: GROQ_API_KEY_1
         sync: false
       - key: GROQ_API_KEY_2
         sync: false
       - key: GROQ_API_KEY_3
-        sync: false
-      - key: FOOTBALL_API_KEY
         sync: false
       - key: GROQ_MODEL_1
         value: llama-3.3-70b-versatile
@@ -19,3 +43,59 @@ services:
         value: llama-3.3-70b-versatile
       - key: GROQ_MODEL_3
         value: llama-3.3-70b-versatile
+      - key: FOOTBALL_API_KEY
+        sync: false
+      - key: DAILY_ANALYSIS_LIMIT
+        value: "30"
+      - key: MAX_CONCURRENT_ANALYSES
+        value: "3"
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ------------------------------------------------------------------ web app
+  - type: web
+    name: football-ai-web
+    runtime: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: frontend/dist
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_API_URL            # https://<api domain>   (no trailing slash, no /api)
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY  # the publishable (anon) key; safe in the browser
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+
+  # ------------------------------------------------------------------ results job
+  - type: cron
+    name: football-ai-record-results
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m scripts.refresh_results
+    schedule: "0 */3 * * *"          # every 3 hours: record final scores of predicted matches
+    plan: starter
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: FOOTBALL_API_KEY
+        sync: false
