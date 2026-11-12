@@ -14,7 +14,7 @@ export default function Paywall({ me, cfg, checking }: { me: Me; cfg: PublicConf
   return (
     <main>
       <section className="panel authbox">
-        <h2>{past ? "Your subscription is not active" : "Unlock FOOTBALL AI"}</h2>
+        <h2>{past ? "Your subscription is not active" : "Unlock TACTIQ"}</h2>
         <p className="price">{price}<span className="muted small"> / month</span></p>
         <ul className="small">
           <li>Three AI agents analyse every fixture</li>

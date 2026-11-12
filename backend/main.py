@@ -111,7 +111,7 @@ def create_app(
             await state["news"].aclose()
         await accounts.aclose()
 
-    app = FastAPI(title="Football AI", lifespan=lifespan)
+    app = FastAPI(title="TACTIQ", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["*"], allow_headers=["*"]
     )

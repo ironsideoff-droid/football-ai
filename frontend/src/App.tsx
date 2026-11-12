@@ -60,7 +60,7 @@ export default function App() {
     <div className="app">
       <header className="top">
         <div className="topbar">
-          <h1 className="wordmark">FOOTBALL AI</h1>
+          <h1 className="wordmark"><img className="brand" src="/brand/logo-dark.jpg" alt="TACTIQ" /></h1>
           {me && cfg && !cfg.auth_disabled && (
             <nav className="account small">
               <span className="muted">{me.email}</span>
@@ -73,8 +73,8 @@ export default function App() {
       </header>
       {phase === "loading" && <main><p className="muted">Loading…</p></main>}
       {phase === "error" && <main><p className="warn" role="alert">{error}</p></main>}
-      {phase === "signedOut" && <Login />}
-      {phase === "ready" && me && cfg && (me.subscribed ? <Home /> : <Paywall me={me} cfg={cfg} checking={checking} />)}
+      {phase === "signedOut" && <div className="authwrap"><Login /></div>}
+      {phase === "ready" && me && cfg && (me.subscribed ? <Home /> : <div className="authwrap"><Paywall me={me} cfg={cfg} checking={checking} /></div>)}
     </div>
   );
 }

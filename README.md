@@ -1,4 +1,4 @@
-# FOOTBALL AI 2.0
+# TACTIQ (formerly FOOTBALL AI) — 2.0
 
 A personal football match prediction app. Three independent Groq LLM agents analyse a fixture; the Chief Predictor
 then runs a vectorised NumPy Monte Carlo of **exactly 50,000 simulated matches** with uncertain parameters, scenarios
