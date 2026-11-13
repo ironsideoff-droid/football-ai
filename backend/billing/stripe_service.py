@@ -14,6 +14,11 @@ from errors import AppError, ConfigError
 HANDLED = ("checkout.session.completed", "customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted")
 
 
+def _plain(obj):
+    """Stripe SDK objects are not dicts (no .get); convert them, leave plain dicts alone."""
+    return obj.to_dict() if hasattr(obj, "to_dict") else obj
+
+
 def _period_end(sub) -> Optional[str]:
     ts = sub.get("current_period_end")
     if ts is None:  # newer API versions keep it on the subscription items
@@ -23,6 +28,7 @@ def _period_end(sub) -> Optional[str]:
 
 
 def sub_fields(sub) -> dict:
+    sub = _plain(sub)
     return {
         "stripe_customer_id": sub["customer"],
         "stripe_subscription_id": sub["id"],
@@ -92,7 +98,7 @@ class Billing:
                 api_key=key, query=f"metadata['user_id']:'{user.id}'", limit=5))
         except stripe.StripeError as exc:
             raise AppError("Could not check Stripe for your subscription.") from exc
-        subs = sorted(res["data"], key=lambda x: x["created"], reverse=True)
+        subs = sorted((_plain(x) for x in res["data"]), key=lambda x: x["created"], reverse=True)
         best = next((x for x in subs if x["status"] in ("active", "trialing")), subs[0] if subs else None)
         if best:
             await self.accounts.upsert_subscription(user.id, sub_fields(best))
@@ -109,12 +115,14 @@ class Billing:
             return "ignored"
         if await self.accounts.event_seen(event["id"]):
             return "duplicate"
+        event = _plain(event)
         obj, key = event["data"]["object"], self._key()
         sub_id = obj.get("subscription") if event["type"] == "checkout.session.completed" else obj["id"]
         if not sub_id:
             return "ignored"
         # Re-read the current state instead of trusting event order.
         sub = await asyncio.to_thread(lambda: stripe.Subscription.retrieve(sub_id, api_key=key))
+        sub = _plain(sub)
         user_id = (sub.get("metadata") or {}).get("user_id") or obj.get("client_reference_id") \
             or await self.accounts.user_for_customer(sub["customer"])
         if not user_id:

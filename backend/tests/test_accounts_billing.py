@@ -172,3 +172,27 @@ def test_other_users_are_not_admins(tmp_path):
     c, _ = make_app(tmp_path, email="someone@else.com", admin_emails=("ironsideoff@gmail.com",))
     assert c.get("/api/me", headers=AUTH).json()["is_admin"] is False
     assert c.get("/api/fixtures", headers=AUTH).status_code == 402
+
+
+class _SdkObject:
+    """Mimics a stripe-python v10+ object: subscriptable, has to_dict(), but NO .get()."""
+    def __init__(self, d): self._d = d
+    def __getitem__(self, k): return self._d[k]
+    def to_dict(self): return self._d
+
+
+def test_sub_fields_accepts_sdk_objects_without_get():
+    from billing.stripe_service import sub_fields
+    sub = _SdkObject({"id": "sub_1", "customer": "cus_1", "status": "active", "current_period_end": 1900000000,
+                      "cancel_at_period_end": False, "items": {"data": []}})
+    out = sub_fields(sub)
+    assert out["status"] == "active" and out["stripe_subscription_id"] == "sub_1" and out["current_period_end"]
+
+
+def test_sync_finds_subscription_returned_as_sdk_objects(tmp_path, monkeypatch):
+    c, _ = make_app(tmp_path)
+    sub = _SdkObject({"id": "sub_1", "customer": "cus_1", "status": "active", "created": 1,
+                      "current_period_end": 1900000000, "cancel_at_period_end": False, "items": {"data": []}})
+    monkeypatch.setattr(stripe.Subscription, "search", lambda **kw: {"data": [sub]})
+    r = c.post("/api/billing/sync", headers=AUTH)
+    assert r.status_code == 200, r.text
