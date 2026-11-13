@@ -21,9 +21,9 @@ services:
         value: llama-3.3-70b-versatile
       # accounts & billing (public values; secrets are set in the Render dashboard)
       - key: SUPABASE_URL
-        value: https://ogrbrndktlixinsaivyj.supabase.co
+        value: https://kexecssmahhfyjuqaadr.supabase.co
       - key: SUPABASE_ANON_KEY
-        value: sb_publishable_sxfHchdJvYmfar82Ph661g_vQ1pmzC3
+        value: sb_publishable_tnhCeHMLEHf_hCpOnfjMlA_NPUO3aQc
       - key: SUPABASE_SERVICE_KEY
         sync: false
       - key: STRIPE_SECRET_KEY
