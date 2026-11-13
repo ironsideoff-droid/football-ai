@@ -16,7 +16,7 @@ from main import create_app
 UID = "11111111-1111-1111-1111-111111111111"
 
 
-def make_app(tmp_path, sub_status=None, **over):
+def make_app(tmp_path, sub_status=None, email="a@b.c", confirmed=True, **over):
     """App wired to a fake Supabase: /auth/v1/user and the subscriptions table."""
     db = {"subs": {}, "events": set()}
     if sub_status:
@@ -25,7 +25,7 @@ def make_app(tmp_path, sub_status=None, **over):
     def handler(req: httpx.Request) -> httpx.Response:
         path = req.url.path
         if path == "/auth/v1/user":
-            return httpx.Response(200, json={"id": UID, "email": "a@b.c"}) if req.headers["authorization"] == "Bearer good-token-0123456789" else httpx.Response(401, json={})
+            return httpx.Response(200, json={"id": UID, "email": email, **({"email_confirmed_at": "2026-01-01T00:00:00Z"} if confirmed else {})}) if req.headers["authorization"] == "Bearer good-token-0123456789" else httpx.Response(401, json={})
         if path == "/rest/v1/tactiq_subscriptions":
             if req.method == "GET":
                 q = req.url.params
@@ -151,3 +151,23 @@ def test_production_fails_closed_when_accounts_are_not_configured(tmp_path):
     c = TestClient(create_app(s))
     assert c.get("/api/fixtures").status_code == 401
     assert c.get("/api/fixtures", headers=AUTH).status_code == 503
+
+
+def test_admin_uses_the_app_without_paying(tmp_path):
+    c, _ = make_app(tmp_path, email="Ironsideoff@Gmail.com", admin_emails=("ironsideoff@gmail.com",))
+    me = c.get("/api/me", headers=AUTH).json()
+    assert me["is_admin"] is True and me["subscribed"] is True
+    assert c.get("/api/fixtures", headers=AUTH).status_code == 503  # past the gate with no subscription row
+    assert c.post("/api/billing/checkout", headers=AUTH).status_code == 409
+
+
+def test_admin_email_must_be_verified(tmp_path):
+    c, _ = make_app(tmp_path, email="ironsideoff@gmail.com", confirmed=False, admin_emails=("ironsideoff@gmail.com",))
+    assert c.get("/api/me", headers=AUTH).json()["is_admin"] is False
+    assert c.get("/api/fixtures", headers=AUTH).status_code == 402
+
+
+def test_other_users_are_not_admins(tmp_path):
+    c, _ = make_app(tmp_path, email="someone@else.com", admin_emails=("ironsideoff@gmail.com",))
+    assert c.get("/api/me", headers=AUTH).json()["is_admin"] is False
+    assert c.get("/api/fixtures", headers=AUTH).status_code == 402

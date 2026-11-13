@@ -38,10 +38,12 @@ export const refreshResults = () => request<{ results_recorded: number[] }>("/ev
 export interface Me {
   email: string;
   subscribed: boolean;
+  is_admin: boolean;
   has_billing_account: boolean;
   subscription: { status: string; current_period_end: string | null; cancel_at_period_end: boolean };
 }
 export const getMe = () => request<Me>("/me");
 export const startCheckout = () => request<{ url: string }>("/billing/checkout", { method: "POST" });
 export const openPortal = () => request<{ url: string }>("/billing/portal", { method: "POST" });
-export const syncBilling = () => request<{ subscribed: boolean; status: string }>("/billing/sync", { method: "POST" });
+export const syncBilling = () => request<{ subscribed: boolean;
+  is_admin: boolean; status: string }>("/billing/sync", { method: "POST" });

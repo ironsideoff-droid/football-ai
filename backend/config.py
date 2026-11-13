@@ -40,6 +40,7 @@ class Settings:
     stripe_webhook_secret: str = ""
     stripe_price_id: str = ""  # optional; otherwise a 9.99 EUR/month price is created inline
     app_url: str = ""
+    admin_emails: tuple[str, ...] = ()  # these verified accounts use the app without paying
     price_cents: int = 999
     price_currency: str = "eur"
 
@@ -76,6 +77,7 @@ def load_settings() -> Settings:
         stripe_secret_key=(env("STRIPE_SECRET_KEY") or "").strip(),
         stripe_webhook_secret=(env("STRIPE_WEBHOOK_SECRET") or "").strip(),
         stripe_price_id=(env("STRIPE_PRICE_ID") or "").strip(),
+        admin_emails=tuple(e.strip().lower() for e in (env("ADMIN_EMAILS") or "").split(",") if e.strip()),
         app_url=(env("APP_URL") or env("RENDER_EXTERNAL_URL") or "").strip().rstrip("/"),
         predictions_dir=(env("PREDICTIONS_DIR") or str(Path(__file__).resolve().parent / "data_store")),
     )

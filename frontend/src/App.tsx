@@ -63,7 +63,7 @@ export default function App() {
           <h1 className="wordmark"><img className="brand" src="/brand/logo-dark.jpg" alt="TACTIQ" /></h1>
           {me && cfg && !cfg.auth_disabled && (
             <nav className="account small">
-              <span className="muted">{me.email}</span>
+              <span className="muted">{me.email}{me.is_admin && " · admin"}</span>
               {me.subscribed && me.has_billing_account && <button className="linkish" onClick={portal}>Billing</button>}
               <button className="linkish" onClick={() => supabase()?.auth.signOut()}>Sign out</button>
             </nav>

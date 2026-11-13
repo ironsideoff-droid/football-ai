@@ -19,6 +19,7 @@ class User:
     id: str
     email: str
     token: str = ""
+    email_verified: bool = False
 
 
 class Accounts:
@@ -51,7 +52,8 @@ class Accounts:
         if r.status_code >= 400:
             raise AppError("The login service returned an error. Try again in a moment.")
         body = r.json()
-        user = User(id=body["id"], email=body.get("email") or "", token=token)
+        user = User(id=body["id"], email=body.get("email") or "", token=token,
+                    email_verified=bool(body.get("email_confirmed_at") or body.get("confirmed_at")))
         if len(self._cache) > 2000:
             self._cache.clear()
         self._cache[token] = (time.monotonic() + 60, user)
@@ -108,6 +110,11 @@ class Accounts:
             headers={**self._service_headers(), "Prefer": "resolution=ignore-duplicates,return=minimal"},
             json={"id": event_id, "type": etype},
         )
+
+
+def is_admin(user: User, settings: Settings) -> bool:
+    """Admins are matched on a *verified* email only, so nobody can claim an admin address by signing up with it."""
+    return bool(user.email_verified and user.email.strip().lower() in settings.admin_emails)
 
 
 def is_active(sub: dict) -> bool:

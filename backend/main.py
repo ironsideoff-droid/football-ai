@@ -16,7 +16,7 @@ from agents.chief_predictor import ChiefPredictorAgent
 from agents.football_intelligence import FootballIntelligenceAgent
 from agents.statistical_researcher import StatisticalResearcherAgent
 from config import AGENT_NAMES, Settings, load_settings
-from billing.accounts import Accounts, User, is_active
+from billing.accounts import Accounts, User, is_active, is_admin
 from billing.stripe_service import Billing
 from errors import AppError, AuthRequiredError, ConfigError, SubscriptionRequiredError
 from football_data.provider import FootballDataOrgProvider, FootballProvider
@@ -56,7 +56,7 @@ def create_app(
         return await accounts.verify(header[7:].strip())
 
     async def subscriber(user: User = Depends(current_user)) -> User:
-        if settings.auth_disabled:
+        if settings.auth_disabled or is_admin(user, settings):
             return user
         if not is_active(await accounts.get_subscription(user)):
             raise SubscriptionRequiredError("An active subscription is required.")
@@ -145,14 +145,15 @@ def create_app(
 
     @app.get("/api/me")
     async def me(user: User = Depends(current_user)):
+        admin = is_admin(user, settings)
         sub = await accounts.get_subscription(user) if not settings.auth_disabled else {"status": "active"}
-        return {"email": user.email, "subscription": {k: v for k, v in sub.items() if k != "stripe_customer_id"},
-                "subscribed": is_active(sub), "has_billing_account": bool(sub.get("stripe_customer_id"))}
+        return {"email": user.email, "is_admin": admin, "subscription": {k: v for k, v in sub.items() if k != "stripe_customer_id"},
+                "subscribed": admin or is_active(sub), "has_billing_account": bool(sub.get("stripe_customer_id"))}
 
     @app.post("/api/billing/checkout")
     async def billing_checkout(request: Request, user: User = Depends(current_user)):
-        if is_active(await accounts.get_subscription(user)):
-            raise HTTPException(status_code=409, detail="You already have an active subscription.")
+        if is_admin(user, settings) or is_active(await accounts.get_subscription(user)):
+            raise HTTPException(status_code=409, detail="You already have full access.")
         return {"url": await billing.checkout_url(user, origin(request))}
 
     @app.post("/api/billing/portal")
