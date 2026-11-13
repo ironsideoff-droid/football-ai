@@ -32,6 +32,9 @@ def sub_fields(sub) -> dict:
     }
 
 
+SAAS_PERSONAL_TAX_CODE = "txcd_10103000"
+
+
 class Billing:
     def __init__(self, settings: Settings, accounts: Accounts):
         self.s, self.accounts = settings, accounts
@@ -50,7 +53,9 @@ class Billing:
         line = ({"price": self.s.stripe_price_id, "quantity": 1} if self.s.stripe_price_id else {
             "quantity": 1,
             "price_data": {"currency": self.s.price_currency, "unit_amount": self.s.price_cents, "recurring": {"interval": "month"},
-                           "product_data": {"name": "TACTIQ — monthly access"}}})
+                           "product_data": {"name": "TACTIQ — monthly access",
+                                            # Required by Stripe Managed Payments: SaaS, personal use.
+                                            "tax_code": SAAS_PERSONAL_TAX_CODE}}})
         params: dict = {
             "mode": "subscription", "line_items": [line], "client_reference_id": user.id,
             "metadata": {"user_id": user.id}, "subscription_data": {"metadata": {"user_id": user.id}},

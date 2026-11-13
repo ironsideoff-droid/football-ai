@@ -90,6 +90,7 @@ def test_checkout_session_is_9_99_eur_monthly_and_tied_to_the_user(tmp_path, mon
     assert r.json() == {"url": "https://stripe.test/pay"}
     item = seen["line_items"][0]["price_data"]
     assert (item["unit_amount"], item["currency"], item["recurring"]) == (999, "eur", {"interval": "month"})
+    assert item["product_data"]["tax_code"] == "txcd_10103000"  # Managed Payments requires a product tax code
     assert seen["mode"] == "subscription" and seen["client_reference_id"] == UID
     assert seen["subscription_data"]["metadata"]["user_id"] == UID and seen["success_url"].startswith("https://app.example/")
 
