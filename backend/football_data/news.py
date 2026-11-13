@@ -22,7 +22,8 @@ from football_data.source_manager import classify_source, news_freshness, now_is
 from schemas.match import MatchSummary
 from schemas.news import NewsBundle, NewsItem
 
-MAX_ITEMS_PER_TEAM = 8
+MAX_ITEMS_PER_TEAM = 10
+TOPICS = ("", "injury OR injured OR suspended OR doubt OR ruled out", "team news OR lineup OR starting XI OR press conference")
 MAX_AGE_DAYS = 14
 
 
@@ -83,11 +84,23 @@ class GoogleNewsRssProvider(NewsProvider):
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    async def _team(self, side: str, name: str) -> list[NewsItem]:
-        query = quote_plus(f'"{name}" football when:{MAX_AGE_DAYS}d')
+    async def _query(self, side: str, name: str, topic: str) -> list[NewsItem]:
+        query = quote_plus(f'"{name}" football {topic} when:{MAX_AGE_DAYS}d'.replace("  ", " "))
         resp = await self._http.get(f"/rss/search?q={query}&hl=en-GB&gl=GB&ceid=GB:en")
         resp.raise_for_status()
         return parse_rss(resp.text, side, name)
+
+    async def _team(self, side: str, name: str) -> list[NewsItem]:
+        """Three searches per team (general, injuries and suspensions, team news and lineups), merged and de-duplicated."""
+        results = await asyncio.gather(*(self._query(side, name, t) for t in TOPICS), return_exceptions=True)
+        good = [r for r in results if not isinstance(r, BaseException)]
+        if not good:
+            raise next(r for r in results if isinstance(r, BaseException))
+        merged: dict[str, NewsItem] = {}
+        for items in good:
+            for it in items:
+                merged.setdefault(it.item_id, it)
+        return sorted(merged.values(), key=lambda i: i.published_at or "", reverse=True)[:MAX_ITEMS_PER_TEAM]
 
     async def fetch(self, match: MatchSummary) -> NewsBundle:
         results = await asyncio.gather(

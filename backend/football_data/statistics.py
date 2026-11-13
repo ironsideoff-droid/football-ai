@@ -143,11 +143,25 @@ def _row(table: list[dict], team_id: int) -> Optional[StandingRow]:
     return None
 
 
+def _group_standings(data: dict, home_id: int, away_id: int) -> Optional[StandingsContext]:
+    """Cups with group stages (World Cup, European Championship, Champions League league phase): positions from the
+    group that holds the teams. A few group games say little about league-wide scoring, so no league averages are set."""
+    for grp in data.get("standings", []):
+        if grp.get("type") != "TOTAL" or not grp.get("group"):
+            continue
+        table = grp.get("table", [])
+        ids = {(r.get("team") or {}).get("id") for r in table}
+        if home_id in ids or away_id in ids:
+            return StandingsContext(competition=(data.get("competition") or {}).get("name"), table_size=len(table),
+                                    home_team_overall=_row(table, home_id), away_team_overall=_row(table, away_id))
+    return None
+
+
 def extract_standings(data: dict, home_id: int, away_id: int) -> Optional[StandingsContext]:
     by_type = {s.get("type"): s.get("table", []) for s in data.get("standings", []) if not s.get("group")}
     total = by_type.get("TOTAL") or []
     if not total:
-        return None
+        return _group_standings(data, home_id, away_id)
     home_tbl, away_tbl = by_type.get("HOME") or [], by_type.get("AWAY") or []
     team_games = sum(r.get("playedGames", 0) for r in total)
     total_goals = sum(r.get("goalsFor", 0) for r in total)

@@ -5,6 +5,7 @@ To switch provider later, implement `FootballProvider` and pass it to the app.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 import re
 import time
 from datetime import date, timedelta
@@ -35,6 +36,7 @@ UNAVAILABLE = {
 }
 
 
+RATE_LIMIT_PER_MINUTE = 9  # the free plan allows 10; keep one in reserve
 MAX_RANGE_DAYS = 10  # largest date range requested from the API in one call
 
 
@@ -63,30 +65,49 @@ class FootballDataOrgProvider(FootballProvider):
         transport: Optional[httpx.AsyncBaseTransport] = None,
         sleep=asyncio.sleep,
         cache_ttl: float = 300.0,
+        clock=time.monotonic,
     ):
         self._http = httpx.AsyncClient(
             base_url=base_url, timeout=timeout, headers={"X-Auth-Token": api_key}, transport=transport
         )
-        self._sleep = sleep
+        self._sleep, self._clock = sleep, clock
         self._ttl = cache_ttl
+        self._stamps: deque[float] = deque()
+        self._gate = asyncio.Lock()
         self._cache: dict[tuple, tuple[float, dict]] = {}
 
     async def aclose(self) -> None:
         await self._http.aclose()
 
+    def _ttl_for(self, path: str) -> float:
+        # tables and a team's past results change at most once a day: keep them for 30 minutes to save the 10 requests/minute
+        return max(self._ttl, 1800.0) if ("/standings" in path or re.search(r"/teams/\d+/matches", path)) else self._ttl
+
+    async def _throttle(self) -> None:
+        """Stay under the free plan's 10 requests per minute by waiting instead of failing (one request at a time through the gate)."""
+        async with self._gate:
+            now = self._clock()
+            while self._stamps and now - self._stamps[0] >= 60:
+                self._stamps.popleft()
+            if len(self._stamps) >= RATE_LIMIT_PER_MINUTE:
+                await self._sleep(max(0.0, self._stamps[0] + 60.5 - now))
+                self._stamps.popleft()
+            self._stamps.append(self._clock())
+
     async def _get(self, path: str, params: Optional[dict] = None) -> dict[str, Any]:
         key = (path, tuple(sorted((params or {}).items())))
         hit = self._cache.get(key)
-        if hit and time.monotonic() - hit[0] < self._ttl:
+        if hit and self._clock() - hit[0] < self._ttl_for(path):
             return hit[1]
-        for attempt in range(2):
+        for attempt in range(3):
+            await self._throttle()
             try:
                 resp = await self._http.get(path, params=params)
             except httpx.HTTPError as exc:
                 raise FootballDataError(f"Could not reach the football data API: {exc}") from exc
-            if resp.status_code == 429 and attempt == 0:
+            if resp.status_code == 429 and attempt < 2:
                 found = re.search(r"(\d+)\s*seconds", resp.text)
-                await self._sleep(min(int(found.group(1)) if found else 10, 30) + 1)
+                await self._sleep(min(int(found.group(1)) if found else 15, 65) + 1)
                 continue
             break
         if resp.status_code == 401:
@@ -100,7 +121,7 @@ class FootballDataOrgProvider(FootballProvider):
         if resp.status_code >= 400:
             raise FootballDataError(f"football-data.org returned HTTP {resp.status_code}.")
         data = resp.json()
-        self._cache[key] = (time.monotonic(), data)
+        self._cache[key] = (self._clock(), data)
         return data
 
     async def list_fixtures(self, date_from, date_to, competitions=None):

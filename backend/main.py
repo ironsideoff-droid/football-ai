@@ -22,6 +22,7 @@ from errors import AppError, AuthRequiredError, ConfigError, SubscriptionRequire
 from football_data.provider import FootballDataOrgProvider, FootballProvider
 from evaluation import backtesting, metrics
 from evaluation.store import PredictionStore
+from football_data.web_research import WebResearch
 from football_data.news import DisabledNews, GoogleNewsRssProvider, NewsProvider
 from services.groq_client import GroqClient
 from simulation.goal_model import GoalModelConfig
@@ -79,6 +80,16 @@ def create_app(
             state["news"] = GoogleNewsRssProvider(timeout=15.0) if settings.news_enabled else DisabledNews()
         return state["news"]
 
+    def get_web() -> Optional[WebResearch]:
+        if not settings.web_research:
+            return None
+        key = settings.web_research_key or settings.groq_keys[0]
+        if not key:
+            return None
+        if state.get("web") is None:
+            state["web"] = WebResearch(key, settings.web_research_model, settings.groq_base_url)
+        return state["web"]
+
     def get_orchestrator() -> Orchestrator:
         if state["orchestrator"] is None:
             missing = settings.missing_groq()
@@ -96,6 +107,7 @@ def create_app(
                 ChiefPredictorAgent(clients[2]),
                 news=get_news(),
                 store=store,
+                web=get_web(),
                 goal_cfg=GoalModelConfig(model=settings.goal_model, dc_rho=settings.dc_rho, bp_share=settings.bp_share),  # type: ignore[arg-type]
             )
         return state["orchestrator"]
@@ -109,6 +121,8 @@ def create_app(
             await state["provider"].aclose()
         if state["news"] is not None:
             await state["news"].aclose()
+        if state.get("web") is not None:
+            await state["web"].aclose()
         await accounts.aclose()
 
     app = FastAPI(title="TACTIQ", lifespan=lifespan)
@@ -133,6 +147,7 @@ def create_app(
             "warnings": [warning] if warning else [],
             "news_enabled": settings.news_enabled,
             "goal_model": settings.goal_model,
+            "web_research": {"enabled": settings.web_research, "model": settings.web_research_model, "own_key": bool(settings.web_research_key)},
         }
 
     @app.get("/api/config")

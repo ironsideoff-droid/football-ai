@@ -18,6 +18,7 @@ class NewsItem(BaseModel):
     published_at: Optional[str] = None
     age_days: Optional[float] = None
     reliability_class: Reliability = "unknown"
+    origin: Literal["rss", "web_research"] = "rss"  # web_research: a one-sentence claim written by a search agent, not a publisher headline
 
 
 class NewsBundle(BaseModel):

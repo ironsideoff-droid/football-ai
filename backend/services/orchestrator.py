@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -108,9 +109,11 @@ class Orchestrator:
         store: Optional[PredictionStore] = None,
         goal_cfg: Optional[GoalModelConfig] = None,
         simulate: Callable = run_simulation,
+        web=None,
     ):
         self.provider, self.researcher, self.intelligence, self.chief = provider, researcher, intelligence, chief
         self.news, self.store, self.goal_cfg, self.simulate = news, store, goal_cfg or GoalModelConfig(), simulate
+        self.web = web  # optional WebResearch
 
     async def _step(self, progress: Progress, key: str, coro, message: Optional[str] = None):
         progress.start(key, message)
@@ -127,11 +130,24 @@ class Orchestrator:
 
     async def _fetch_news(self, ctx: MatchContext) -> NewsBundle:
         if self.news is None:
-            return NewsBundle(status="disabled", retrieved_at=now_iso(), provider="disabled")
-        try:
-            return await self.news.fetch(ctx.match)
-        except Exception as exc:  # noqa: BLE001  news is optional: its failure never stops the analysis
-            return NewsBundle(status="unavailable", errors=[f"{type(exc).__name__}: {exc}"], retrieved_at=now_iso())
+            bundle = NewsBundle(status="disabled", retrieved_at=now_iso(), provider="disabled")
+        else:
+            try:
+                bundle = await self.news.fetch(ctx.match)
+            except Exception as exc:  # noqa: BLE001  news is optional: its failure never stops the analysis
+                bundle = NewsBundle(status="unavailable", errors=[f"{type(exc).__name__}: {exc}"], retrieved_at=now_iso())
+        if self.web is not None:  # optional deep research; any failure only skips it
+            bundle = bundle.model_copy(update={"items": list(bundle.items), "errors": list(bundle.errors)})  # never edit the provider's own object
+            try:
+                found = await asyncio.wait_for(self.web.fetch(ctx.match), timeout=120)
+                known = {re.sub(r"\W+", " ", i.title.lower()) for i in bundle.items}
+                bundle.items = [*bundle.items, *[i for i in found if re.sub(r"\W+", " ", i.title.lower()) not in known]]
+                if bundle.status in ("unavailable", "disabled") and found:
+                    bundle.status, bundle.provider = "partial", (bundle.provider or "web research")
+                bundle.provider = f"{bundle.provider} + web research".strip(" +")
+            except Exception as exc:  # noqa: BLE001
+                bundle.errors.append(f"Web research skipped: {getattr(exc, 'message', None) or type(exc).__name__}")
+        return bundle
 
     def _abstain(self, ctx: MatchContext, news: NewsBundle, reason: str, progress: Progress, warnings: list[str], **parts) -> AnalysisResult:
         for key, step in progress.steps.items():
@@ -165,7 +181,7 @@ class Orchestrator:
 
         progress.start("news")
         news = await self._fetch_news(ctx)
-        progress.done("news", f"{len(news.items)} headlines" if news.items else (news.errors[0] if news.errors else news.status))
+        progress.done("news", f"{sum(1 for i in news.items if i.origin == 'rss')} headlines" + (f" + {sum(1 for i in news.items if i.origin == 'web_research')} web findings" if any(i.origin == "web_research" for i in news.items) else "") if news.items else (news.errors[0] if news.errors else news.status))
         ctx.sources = [*ctx.sources, *[
             SourceRecord(id=i.item_id, name=i.source, url=i.link, retrieved_at=news.retrieved_at, published_at=i.published_at,
                          reliability=i.reliability_class, freshness=news_freshness(i.published_at)[0], note=f"news about {i.team_name}")

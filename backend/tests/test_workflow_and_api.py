@@ -238,3 +238,28 @@ def test_job_reports_error(settings, context, news_bundle):
                 break
             time.sleep(0.05)
         assert job["status"] == "error" and job["error"]["code"] == "invalid_agent_output"
+
+
+def test_web_research_findings_join_the_news_and_its_failure_never_stops_the_analysis(context, news_bundle):
+    from schemas.news import NewsItem
+
+    class Web:
+        def __init__(self, items=None, exc=None):
+            self.items, self.exc = items, exc
+
+        async def fetch(self, match):
+            if self.exc:
+                raise self.exc
+            return self.items
+
+    found = NewsItem(item_id="wh-1", team="home", team_name="Home FC", title="Striker doubtful with a hamstring problem", source="BBC Sport",
+                     link="https://bbc.co.uk/x", reliability_class="high", origin="web_research")
+    o = build(context, news_bundle)
+    o.web = Web([found])
+    bundle = asyncio.run(o._fetch_news(context))
+    assert [i.item_id for i in bundle.items] == ["h-1", "wh-1"] and "web research" in bundle.provider
+
+    o2 = build(context, news_bundle)
+    o2.web = Web(exc=RuntimeError("boom"))
+    bundle2 = asyncio.run(o2._fetch_news(context))
+    assert [i.item_id for i in bundle2.items] == ["h-1"] and any("Web research skipped" in e for e in bundle2.errors)

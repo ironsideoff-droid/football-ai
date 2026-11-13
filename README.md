@@ -161,3 +161,14 @@ backtesting without look-ahead, store immutability, API error handling, the full
 * **Subscription state** is always re-read from Stripe when a webhook arrives, so event order does not matter. If a webhook is late, the app asks Stripe directly after you return from checkout.
 
 Stripe webhook: add the endpoint `https://<your-app>/api/billing/webhook` with the events `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and put its signing secret in `STRIPE_WEBHOOK_SECRET`.
+
+## Data coverage
+
+* **football-data.org** (free plan): fixtures, results, league tables (including group tables for cups) and head-to-head. Requests are
+  spaced to stay under the 10-per-minute limit, rate-limit answers are retried, and tables and team results are cached for 30 minutes.
+* **News:** three Google News RSS searches per team (general, injuries and suspensions, team news and lineups). Headlines only.
+* **Web research (optional, `WEB_RESEARCH=true`):** a Groq model with `browser_search` looks for recent injuries, suspensions and lineups and
+  returns short claims with URLs. A claim is dropped if it has no URL or its URL does not appear in what the search returned, and claims are
+  marked as lower-reliability summaries for the agents. If it fails (rate limit, timeout) the analysis simply continues without it.
+* **Not available from any free source used here:** xG, shots and possession. The app says so in the data-quality report and never invents them.
+  Confirmed lineups appear on the pitch view only if the football data provider supplies them.

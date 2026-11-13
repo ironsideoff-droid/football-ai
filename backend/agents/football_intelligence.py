@@ -58,7 +58,7 @@ class FootballIntelligenceAgent(BaseAgent):
             return unavailable_report(match, reason)
         payload = {
             "match": {"home": match.home.name, "away": match.away.name, "kickoff_utc": match.utc_date},
-            "news_items": [i.model_dump(include={"item_id", "team", "title", "source", "published_at", "age_days", "reliability_class"})
+            "news_items": [i.model_dump(include={"item_id", "team", "title", "source", "published_at", "age_days", "reliability_class", "origin"})
                            for i in bundle.items],
             "retrieved_at": bundle.retrieved_at,
         }
