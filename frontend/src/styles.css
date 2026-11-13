@@ -146,3 +146,5 @@ a { color: var(--teal); }
 
 .brand { display: block; height: clamp(44px, 9vw, 72px); width: auto; }
 .authwrap { padding: 8px 0 40px; }
+.googlebtn { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 14px; }
+.orline { margin: 12px 0 0; }
