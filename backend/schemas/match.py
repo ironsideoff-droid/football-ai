@@ -106,12 +106,30 @@ class StandingsContext(BaseModel):
     away_team_away: Optional[StandingRow] = None
 
 
+class LineupPlayer(BaseModel):
+    name: str
+    position: Optional[str] = None  # as supplied: Goalkeeper / Defence / Midfield / Offence (or a specific position)
+    shirt_number: Optional[int] = None
+
+
+class TeamLineup(BaseModel):
+    formation: Optional[str] = None
+    coach: Optional[str] = None
+    starters: list[LineupPlayer] = []
+
+
+class Lineups(BaseModel):
+    home: TeamLineup
+    away: TeamLineup
+
+
 class MatchContext(BaseModel):
     match: MatchSummary
     standings: Optional[StandingsContext] = None
     home_form: Optional[TeamForm] = None
     away_form: Optional[TeamForm] = None
     head_to_head: Optional[H2HSummary] = None
+    lineups: Optional[Lineups] = None
     data_availability: dict[str, str] = {}
     sources: list[SourceRecord] = []
     data_quality: Optional[DataQualityReport] = None
@@ -119,3 +137,17 @@ class MatchContext(BaseModel):
 
     def to_agent_payload(self) -> dict:
         return self.model_dump(exclude={"match": {"home": {"crest"}, "away": {"crest"}}, "sources": True, "data_quality": True})
+
+
+class ViewContext(BaseModel):
+    """The real data behind the charts in the web app (no sources / quality blocks, which are returned separately)."""
+    standings: Optional[StandingsContext] = None
+    home_form: Optional[TeamForm] = None
+    away_form: Optional[TeamForm] = None
+    head_to_head: Optional[H2HSummary] = None
+    lineups: Optional[Lineups] = None
+
+    @classmethod
+    def of(cls, ctx: "MatchContext") -> "ViewContext":
+        return cls(standings=ctx.standings, home_form=ctx.home_form, away_form=ctx.away_form,
+                   head_to_head=ctx.head_to_head, lineups=ctx.lineups)

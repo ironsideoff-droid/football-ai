@@ -3,6 +3,19 @@ export interface MatchSummary {
   id: number; utc_date: string; status: string; competition?: string | null; competition_code?: string | null;
   matchday?: number | null; home: TeamRef; away: TeamRef; score_home?: number | null; score_away?: number | null;
 }
+export interface FormSplit { played: number; won: number; drawn: number; lost: number; goals_for: number; goals_against: number }
+export interface RecentMatch { date: string; competition?: string | null; opponent: string; venue: "H" | "A"; goals_for: number; goals_against: number; result: "W" | "D" | "L" }
+export interface TeamForm {
+  team: string; matches_considered: number; overall: FormSplit; home: FormSplit; away: FormSplit; points: number; points_per_game?: number | null;
+  avg_goals_for?: number | null; avg_goals_against?: number | null; clean_sheets: number; failed_to_score: number;
+  sequence_oldest_to_newest: string; recent_matches: RecentMatch[]; rest_days?: number | null; matches_last_30_days: number;
+}
+export interface H2H { matches_considered: number; upcoming_home_team_wins: number; draws: number; upcoming_away_team_wins: number; upcoming_home_team_goals: number; upcoming_away_team_goals: number }
+export interface StandingRow { position: number; team: string; played: number; won: number; draw: number; lost: number; points: number; goals_for: number; goals_against: number; goal_difference: number }
+export interface StandingsCtx { table_size: number; home_team_overall?: StandingRow | null; away_team_overall?: StandingRow | null; home_team_at_home?: StandingRow | null; away_team_away?: StandingRow | null }
+export interface LineupPlayer { name: string; position?: string | null; shirt_number?: number | null }
+export interface TeamLineup { formation?: string | null; coach?: string | null; starters: LineupPlayer[] }
+export interface ViewContext { standings?: StandingsCtx | null; home_form?: TeamForm | null; away_form?: TeamForm | null; head_to_head?: H2H | null; lineups?: { home: TeamLineup; away: TeamLineup } | null }
 export interface Step { key: string; label: string; status: "pending" | "running" | "done" | "error"; message?: string | null }
 
 export type Reliability = "high" | "medium" | "low" | "unknown";
@@ -69,7 +82,7 @@ export interface SourceRecord { id: string; name: string; url?: string | null; r
 export interface AnalysisResult {
   match: MatchSummary; researcher: ResearcherReport | null; intelligence: IntelligenceReport | null; chief_plan: ChiefPlan | null;
   simulation: Simulation | null; prediction: Prediction | null; abstained: boolean; abstain_reason: string;
-  data_quality: DataQuality | null; sources: SourceRecord[]; data_availability: Record<string, string>; warnings: string[];
+  data_quality: DataQuality | null; context?: ViewContext | null; sources: SourceRecord[]; data_availability: Record<string, string>; warnings: string[];
   models: Record<string, string>; prediction_record: { status?: string; created_at?: string; note?: string; reason?: string }; generated_at: string;
 }
 export interface Job {

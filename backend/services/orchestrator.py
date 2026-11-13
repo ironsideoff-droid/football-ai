@@ -13,7 +13,7 @@ from football_data.news import NewsProvider
 from football_data.provider import FootballProvider
 from football_data.source_manager import assess_quality, news_freshness, now_iso
 from schemas.agent_reports import ChiefPrediction
-from schemas.match import MatchContext
+from schemas.match import MatchContext, ViewContext
 from schemas.news import NewsBundle
 from schemas.predictions import AnalysisResult, SimulationResult, StepState
 from schemas.sources import SourceRecord
@@ -139,7 +139,7 @@ class Orchestrator:
                 progress.done(key, "Skipped: not enough reliable data")
         return AnalysisResult(
             match=ctx.match, abstained=True, abstain_reason=reason, data_quality=ctx.data_quality, sources=ctx.sources,
-            news_items=news.items, data_availability=ctx.data_availability, warnings=warnings,
+            news_items=news.items, context=ViewContext.of(ctx), data_availability=ctx.data_availability, warnings=warnings,
             prediction_record={"status": "not_saved_abstained"}, generated_at=now_iso(), **parts)
 
     def _store(self, ctx, sim, pred, quality_score, models) -> dict:
@@ -221,5 +221,5 @@ class Orchestrator:
 
         return AnalysisResult(
             match=match, researcher=research, intelligence=intel, chief_plan=plan, simulation=simulation, prediction=prediction,
-            data_quality=quality, sources=ctx.sources, news_items=news.items, data_availability=ctx.data_availability,
+            data_quality=quality, sources=ctx.sources, news_items=news.items, context=ViewContext.of(ctx), data_availability=ctx.data_availability,
             warnings=warnings, models=models, prediction_record=record, generated_at=now_iso())

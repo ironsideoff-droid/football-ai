@@ -1,20 +1,5 @@
 import type { Simulation } from "../types";
-
-function Bars({ title, values }: { title: string; values: number[] }) {
-  const max = Math.max(...values, 1);
-  return (
-    <div className="dist">
-      <h4>{title}</h4>
-      {values.slice(0, 8).map((v, goals) => (
-        <div className="bar-row" key={goals}>
-          <span className="bar-k">{goals}{goals === 7 && values.length > 8 ? "+" : ""}</span>
-          <span className="bar-track"><span className="bar-fill" style={{ width: `${(v / max) * 100}%` }} /></span>
-          <span className="bar-v">{v}%</span>
-        </div>
-      ))}
-    </div>
-  );
-}
+import { Columns, XgBars } from "./charts";
 
 function ScoreGrid({ matrix, home, away }: { matrix: number[][]; home: string; away: string }) {
   const max = Math.max(...matrix.flat(), 1);
@@ -44,6 +29,9 @@ const NAMES: Record<string, string> = {
   home_goals_conceded: "Home goals conceded", away_attack: "Away attack", away_goals_conceded: "Away goals conceded", home_advantage: "Home advantage",
 };
 
+/** Eight columns: 0..6 goals and "7+" (everything from 7 up, so the tail is never dropped). */
+const fold = (v: number[]) => [...Array.from({ length: 7 }, (_, i) => v[i] ?? 0), Math.round(v.slice(7).reduce((a, b) => a + b, 0) * 10) / 10];
+
 export default function SimulationResults({ sim, home, away }: { sim: Simulation; home: string; away: string }) {
   const ev = sim.events;
   const se = sim.uncertainty.monte_carlo_standard_error_pct;
@@ -61,11 +49,24 @@ export default function SimulationResults({ sim, home, away }: { sim: Simulation
         {" "}{away} {sim.away_clean_sheet_pct}%. Over 1.5 / 2.5 / 3.5: {sim.over_1_5_pct}% / {sim.over_2_5_pct}% / {sim.over_3_5_pct}%.
       </p>
 
-      <div className="dists">
-        <Bars title={`${home} goals`} values={sim.goal_distribution.home} />
-        <Bars title={`${away} goals`} values={sim.goal_distribution.away} />
-        <Bars title="Total goals" values={sim.goal_distribution.total} />
+      <div className="chartgrid">
+      <div>
+      <h4>Goals scored</h4>
+      <div className="chartbox">
+        <Columns labels={["0", "1", "2", "3", "4", "5", "6", "7+"]}
+          series={[{ name: home, values: fold(sim.goal_distribution.home), cls: "c-home" }, { name: away, values: fold(sim.goal_distribution.away), cls: "c-away" }]} />
+        <div className="legend"><span><i className="sw sw-home" />{home}</span><span><i className="sw sw-away" />{away}</span></div>
       </div>
+      </div>
+      <div>
+      <h4>Total goals in the match</h4>
+      <div className="chartbox"><Columns labels={["0", "1", "2", "3", "4", "5", "6", "7+"]} series={[{ name: "Total goals", values: fold(sim.goal_distribution.total), cls: "c-total" }]} /></div>
+      </div>
+      </div>
+      <h4>Expected goals</h4>
+      <XgBars rows={[
+        { name: home, value: sim.input_xg_home, lo: sim.uncertainty.xg_home_90pct_interval[0], hi: sim.uncertainty.xg_home_90pct_interval[1], cls: "c-home" },
+        { name: away, value: sim.input_xg_away, lo: sim.uncertainty.xg_away_90pct_interval[0], hi: sim.uncertainty.xg_away_90pct_interval[1], cls: "c-away" }]} />
 
       <h4>Parameter uncertainty</h4>
       <p className="muted small">Every simulation draws its own parameters, so the outcome percentages already include this uncertainty.</p>

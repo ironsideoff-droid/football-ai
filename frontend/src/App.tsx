@@ -58,9 +58,10 @@ export default function App() {
 
   return (
     <div className="app">
+      <div className="ambient" aria-hidden><i /><i /><i /><span className="ballroll" /></div>
       <header className="top">
         <div className="topbar">
-          <h1 className="wordmark"><img className="brand" src="/brand/logo-dark.jpg" alt="TACTIQ" /></h1>
+          <h1 className="wordmark"><img className="brand" src="/brand/logo-dark.png" alt="TACTIQ" /></h1>
           {me && cfg && !cfg.auth_disabled && (
             <nav className="account small">
               <span className="muted">{me.email}{me.is_admin && " · admin"}</span>

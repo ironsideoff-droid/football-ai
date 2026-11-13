@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { getEvaluation, refreshResults, ApiError } from "../services/api";
 import type { EvalReport, Evaluation } from "../types";
+import { CalibrationChart } from "./charts";
 
 const pct = (v?: number) => (v === undefined || v === null ? "–" : `${(v * 100).toFixed(1)}%`);
 const num = (v?: number) => (v === undefined || v === null ? "–" : v.toFixed(3));
@@ -49,6 +50,13 @@ export default function EvaluationPanel() {
               both teams to score {pct(data.chief_predictor.btts?.accuracy)} · over/under 2.5 {pct(data.chief_predictor.over_2_5?.accuracy)} ·
               exact score {pct(data.chief_predictor.exact_score?.accuracy)}. {data.chief_predictor.roi?.available === false && "Betting return: not available (no odds recorded)."}
             </p>
+          )}
+          {data.chief_predictor.calibration && data.chief_predictor.calibration.length > 1 && (
+            <div className="chartbox narrow">
+              <h4>Calibration</h4>
+              <CalibrationChart bins={data.chief_predictor.calibration} />
+              <p className="muted small">Points on the dashed line mean that when the model said 70%, it happened about 70% of the time.</p>
+            </div>
           )}
           <p className="muted small">{data.storage_note}</p>
         </>

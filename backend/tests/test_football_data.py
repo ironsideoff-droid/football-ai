@@ -118,3 +118,18 @@ def test_api_accepts_up_to_30_days_and_rejects_more(tmp_path):
     c = TestClient(app)
     assert c.get("/api/fixtures?days=30").status_code == 200 and c.get("/api/fixtures").status_code == 200
     assert c.get("/api/fixtures?days=31").status_code == 422
+
+
+def _side(n=11, formation="4-3-3"):
+    pos = ["Goalkeeper"] + ["Defence"] * 4 + ["Midfield"] * 3 + ["Offence"] * 3
+    return {"formation": formation, "coach": {"name": "Coach X"},
+            "lineup": [{"id": i, "name": f"Player {i}", "position": pos[i % 11], "shirtNumber": i + 1} for i in range(n)]}
+
+
+def test_only_complete_real_lineups_are_used():
+    from football_data.fixtures import extract_lineups
+    both = extract_lineups({"homeTeam": _side(), "awayTeam": _side(formation="4-4-2")})
+    assert both and both.home.formation == "4-3-3" and len(both.away.starters) == 11 and both.away.coach == "Coach X"
+    assert extract_lineups({"homeTeam": _side(), "awayTeam": _side(10)}) is None  # a partial list is never completed by guessing
+    assert extract_lineups({"homeTeam": _side(), "awayTeam": {}}) is None
+    assert extract_lineups({}) is None

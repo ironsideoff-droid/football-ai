@@ -21,7 +21,7 @@ from errors import (
     FootballNotFoundError,
     FootballRateLimitError,
 )
-from football_data.fixtures import normalize_fixtures, normalize_match
+from football_data.fixtures import extract_lineups, normalize_fixtures, normalize_match
 from football_data.source_manager import api_source, assess_quality
 from football_data.statistics import extract_standings, summarize_h2h, summarize_team_matches
 from schemas.match import MatchContext, MatchSummary
@@ -160,12 +160,16 @@ class FootballDataOrgProvider(FootballProvider):
         standings = extract_standings(stand_raw, hid, aid) if ok(stand_raw) and stand_raw else None
         if ok(stand_raw) and standings is None:
             availability["standings"] = "unavailable: no league table for this competition (e.g. cup or group stage)"
+        lineups = extract_lineups(raw)
+        if lineups:
+            availability["lineups_formations"] = "available: confirmed starting elevens from football-data.org"
         context = MatchContext(
             match=match,
             standings=standings,
             home_form=summarize_team_matches(hid, match.home.name, home_raw.get("matches", []), before) if ok(home_raw) else None,
             away_form=summarize_team_matches(aid, match.away.name, away_raw.get("matches", []), before) if ok(away_raw) else None,
             head_to_head=summarize_h2h(hid, aid, h2h_raw.get("matches", [])) if ok(h2h_raw) else None,
+            lineups=lineups,
             data_availability=availability,
             sources=sources,
             retrieved_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),

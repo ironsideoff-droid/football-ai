@@ -5,7 +5,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel
 
 from schemas.agent_reports import ChiefPlan, ChiefPrediction, IntelligenceReport, ResearcherReport
-from schemas.match import MatchSummary
+from schemas.match import MatchSummary, ViewContext
 from schemas.news import NewsItem
 from schemas.sources import DataQualityReport, SourceRecord
 
@@ -86,6 +86,7 @@ class AnalysisResult(BaseModel):
     data_quality: Optional[DataQualityReport] = None
     sources: list[SourceRecord] = []
     news_items: list[NewsItem] = []
+    context: Optional[ViewContext] = None
     data_availability: dict[str, str] = {}
     warnings: list[str] = []
     models: dict[str, str] = {}

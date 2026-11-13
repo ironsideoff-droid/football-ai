@@ -4,6 +4,8 @@ import AnalysisPanel from "../components/AnalysisPanel";
 import MatchSelector from "../components/MatchSelector";
 import PredictionCard from "../components/PredictionCard";
 import EvaluationPanel from "../components/EvaluationPanel";
+import MatchPitch from "../components/MatchPitch";
+import TeamCompare from "../components/TeamCompare";
 import ScenarioPanel from "../components/ScenarioPanel";
 import SimulationResults from "../components/SimulationResults";
 import { ApiError, getFixtures, getHealth, getJob, startAnalysis } from "../services/api";
@@ -107,6 +109,12 @@ export default function Home() {
       {result && !result.abstained && result.prediction && result.simulation && (
         <>
           <PredictionCard result={result} />
+          <section className="panel">
+            <h3>On the pitch</h3>
+            <MatchPitch homeName={result.match.home.name} awayName={result.match.away.name} homeXg={result.simulation.input_xg_home}
+              awayXg={result.simulation.input_xg_away} score={result.prediction.predicted_score} lineups={result.context?.lineups ?? null} />
+          </section>
+          {result.context && <TeamCompare result={result} ctx={result.context} />}
           <ScenarioPanel scenarios={result.simulation.scenarios} home={result.match.home.name} away={result.match.away.name} />
           <SimulationResults sim={result.simulation} home={result.match.home.name} away={result.match.away.name} />
           <AnalysisPanel result={result} />
