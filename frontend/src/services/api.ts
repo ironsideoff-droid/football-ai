@@ -2,7 +2,7 @@ import { accessToken } from "./auth";
 import type { Evaluation, Health, Job, MatchSummary } from "../types";
 
 export class ApiError extends Error {
-  constructor(message: string, public code?: string, public agent?: string | null) {
+  constructor(message: string, public code?: string, public agent?: string | null, public status?: number) {
     super(message);
   }
 }
@@ -21,7 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const e = body?.error;
-    throw new ApiError(e?.message ?? body?.detail ?? `Request failed (${res.status}).`, e?.code, e?.agent);
+    throw new ApiError(e?.message ?? body?.detail ?? `Request failed (${res.status}).`, e?.code, e?.agent, res.status);
   }
   return body as T;
 }

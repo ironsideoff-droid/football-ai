@@ -23,6 +23,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [fixtureError, setFixtureError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
+  const restartedRef = useRef(false);
+  const restartRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     getHealth().then(setHealth).catch((e: ApiError) => setFixtureError(e.message));
@@ -51,13 +53,17 @@ export default function Home() {
       if (job.status === "done") setResult(job.result);
       else setError(job.error ? `${job.error.agent ? job.error.agent + ": " : ""}${job.error.message}` : "The analysis failed.");
     } catch (e) {
+      const err = e as ApiError;
+      // The server forgets running analyses when it restarts (a new deployment, or the free plan waking up). Start once more.
+      if (err.status === 404 && !restartedRef.current) { restartedRef.current = true; void restartRef.current?.(); return; }
       setRunning(false);
-      setError((e as ApiError).message);
+      setError(err.status === 404 ? "The server restarted while this analysis was running. Please press Analyze again." : err.message);
     }
   }, []);
 
-  const analyze = async () => {
+  const analyze = async (auto = false) => {
     if (!selected) return;
+    if (!auto) restartedRef.current = false;
     setError(null); setResult(null); setRunning(true); setSteps(null);
     try {
       const { job_id } = await startAnalysis(selected.id);
@@ -67,6 +73,8 @@ export default function Home() {
       setError((e as ApiError).message);
     }
   };
+
+  restartRef.current = () => analyze(true);
 
   const missing = health?.agents.filter((a) => !a.key_configured).map((a) => a.name) ?? [];
 
@@ -85,7 +93,7 @@ export default function Home() {
         {loadingFixtures ? <p className="muted">Loading fixtures…</p>
           : fixtureError ? <p className="warn">{fixtureError}</p>
           : <MatchSelector matches={matches} selectedId={selected?.id ?? null} onSelect={setSelected} disabled={running} days={days} onDaysChange={setDays} />}
-        <button className="analyze" onClick={analyze} disabled={!selected || running}>
+        <button className="analyze" onClick={() => void analyze()} disabled={!selected || running}>
           {running ? "Analyzing…" : selected ? `Analyze ${selected.home.short_name ?? selected.home.name} v ${selected.away.short_name ?? selected.away.name}` : "Analyze match"}
         </button>
       </section>
