@@ -263,3 +263,32 @@ def test_web_research_findings_join_the_news_and_its_failure_never_stops_the_ana
     o2.web = Web(exc=RuntimeError("boom"))
     bundle2 = asyncio.run(o2._fetch_news(context))
     assert [i.item_id for i in bundle2.items] == ["h-1"] and any("Web research skipped" in e for e in bundle2.errors)
+
+
+def test_scout_data_reaches_the_result_and_scout_failure_never_stops_the_analysis(context, news_bundle):
+    from football_data.scout import ScoutReport
+    from schemas.match import LineupPlayer, Lineups, TeamLineup
+    from schemas.scout import TeamAdvanced
+
+    xi = lambda: TeamLineup(formation="4-3-3", starters=[LineupPlayer(name=f"P{i}", position="Midfield") for i in range(11)])  # noqa: E731
+
+    class Scout:
+        def __init__(self, exc=None):
+            self.exc = exc
+
+        async def run(self, match):
+            if self.exc:
+                raise self.exc
+            rep = ScoutReport()
+            rep.lineups = Lineups(home=xi(), away=xi(), source="ESPN")
+            rep.home_adv = TeamAdvanced(team="Home FC", source="Understat", matches=5, xg_for_avg=1.9, xg_against_avg=0.8)
+            rep.notes = {"espn": "lineups found", "understat": "xG found"}
+            return rep
+
+    ok = asyncio.run(build(context, news_bundle, scout=Scout()).analyze(100))
+    assert not ok.abstained and ok.context.lineups.source == "ESPN" and ok.context.home_advanced.xg_for_avg == 1.9
+    assert ok.data_quality.components["lineups"] and ok.data_quality.components["xg"]
+    assert ok.data_availability["lineups_formations"].startswith("available")
+
+    bad = asyncio.run(build(context, news_bundle, scout=Scout(exc=RuntimeError("blocked"))).analyze(100))
+    assert not bad.abstained and bad.context.lineups is None

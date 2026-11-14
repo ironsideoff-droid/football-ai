@@ -22,6 +22,7 @@ from errors import AppError
 from football_data.source_manager import classify_source, news_freshness
 from schemas.match import MatchSummary
 from schemas.news import NewsItem
+from schemas.scout import Absence
 
 MAX_PER_TEAM = 5
 SYSTEM = """You are a football news researcher with a web search tool. Search the web for the most recent (last 7 days) news that
@@ -29,8 +30,12 @@ could affect the match below: injuries, suspensions, doubtful players, expected 
 managers. Search for BOTH teams. Use only information you actually read on a page.
 Answer with ONLY this JSON (no other text after your searching):
 {"findings": [{"team": "home" | "away", "claim": "ONE factual sentence, at most 180 characters, exactly supported by the page",
- "url": "the full https URL of the page you read", "source": "publisher name", "published": "YYYY-MM-DD or null"}]}
-At most 5 findings per team. If you find nothing reliable return {"findings": []}. Never invent a claim, a URL, a player or a date."""
+ "url": "the full https URL of the page you read", "source": "publisher name", "published": "YYYY-MM-DD or null"}],
+ "absences": [{"team": "home" | "away", "player": "full name", "status": "injured" | "suspended" | "doubtful",
+ "detail": "short reason, e.g. hamstring, 3rd yellow card, or null", "url": "the full https URL of the page that says so", "source": "publisher name"}]}
+"absences" lists every player you found reported as injured, suspended or doubtful for THIS match (squad lists on sites such as
+Transfermarkt, Physioroom, club or league pages, and team news articles are good places). At most 5 findings and 8 absences per team.
+If you find nothing reliable return empty lists. Never invent a claim, a URL, a player or a date."""
 
 
 class WebResearchError(AppError):
@@ -46,6 +51,46 @@ def _json_tail(text: str) -> tuple[str, dict]:
         raise ValueError("no JSON in the answer")
     end = text.rfind("}")
     return text[:start], json.loads(text[start:end + 1])
+
+
+def _valid_url(url: str, evidence: str) -> bool:
+    if not re.match(r"^https?://[^\s]+$", url) or len(url) > 400:
+        return False
+    return not (len(evidence.strip()) > 20 and url not in evidence)  # a page the model's own search results do not contain
+
+
+def parse_absences(data: dict, evidence: str) -> list[Absence]:
+    out: list[Absence] = []
+    seen: set[tuple[str, str]] = set()
+    per_team = {"home": 0, "away": 0}
+    for a in data.get("absences") or []:
+        if not isinstance(a, dict):
+            continue
+        side, player, url = a.get("team"), str(a.get("player") or "").strip(), str(a.get("url") or "").strip()
+        status = a.get("status") if a.get("status") in ("injured", "suspended", "doubtful") else "unknown"
+        if side not in per_team or not player or len(player) > 60 or per_team[side] >= 8 or not _valid_url(url, evidence):
+            continue
+        key = (side, player.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        per_team[side] += 1
+        detail = str(a.get("detail") or "").strip()[:120] or None
+        host = urlparse(url).netloc
+        out.append(Absence(team=side, player=player, status=status, detail=detail,  # type: ignore[arg-type]
+                           source=str(a.get("source") or host or "web").strip()[:80], url=url))
+    return out
+
+
+def parse_answer(message: dict, match: MatchSummary, now: Optional[datetime] = None) -> tuple[list[NewsItem], list[Absence]]:
+    items = parse_findings(message, match, now)
+    content = message.get("content") or ""
+    try:
+        before, data = _json_tail(content)
+    except (ValueError, json.JSONDecodeError):
+        return items, []
+    evidence = before + json.dumps({k: v for k, v in message.items() if k != "content"}, ensure_ascii=False, default=str)
+    return items, parse_absences(data, evidence)
 
 
 def parse_findings(message: dict, match: MatchSummary, now: Optional[datetime] = None) -> list[NewsItem]:
@@ -66,10 +111,8 @@ def parse_findings(message: dict, match: MatchSummary, now: Optional[datetime] =
         side, claim, url = f.get("team"), str(f.get("claim") or "").strip(), str(f.get("url") or "").strip()
         if side not in per_team or not claim or len(claim) > 240 or per_team[side] >= MAX_PER_TEAM:
             continue
-        if not re.match(r"^https?://[^\s]+$", url) or len(url) > 400:
+        if not _valid_url(url, evidence):
             continue
-        if len(evidence.strip()) > 20 and url not in evidence:
-            continue  # the model named a page its own search results do not contain
         key = re.sub(r"\W+", " ", claim.lower())
         if key in seen:
             continue
@@ -102,11 +145,14 @@ class WebResearch:
         await self._http.aclose()
 
     async def fetch(self, match: MatchSummary) -> list[NewsItem]:
+        return (await self.fetch_all(match))[0]
+
+    async def fetch_all(self, match: MatchSummary) -> tuple[list[NewsItem], list[Absence]]:
         user = json.dumps({"home_team": match.home.name, "away_team": match.away.name, "competition": match.competition,
                            "kickoff_utc": match.utc_date, "today": datetime.now(timezone.utc).date().isoformat()})
         payload = {"model": self.model, "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
                    "tools": [{"type": "browser_search"}], "tool_choice": "required", "temperature": 0.2,
-                   "max_completion_tokens": 2500, "reasoning_effort": "low"}
+                   "max_completion_tokens": 3500, "reasoning_effort": "low"}
         try:
             resp = await self._http.post("/chat/completions", json=payload)
         except httpx.HTTPError as exc:
@@ -123,4 +169,4 @@ class WebResearch:
             message = resp.json()["choices"][0]["message"]
         except (KeyError, IndexError, ValueError) as exc:
             raise WebResearchError("Web research returned an unexpected response.") from exc
-        return parse_findings(message, match)
+        return parse_answer(message, match)

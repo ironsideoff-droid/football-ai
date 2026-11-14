@@ -4,6 +4,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+from schemas.scout import Absence, TeamAdvanced
 from schemas.sources import DataQualityReport, SourceRecord
 
 
@@ -121,6 +122,7 @@ class TeamLineup(BaseModel):
 class Lineups(BaseModel):
     home: TeamLineup
     away: TeamLineup
+    source: Optional[str] = None
 
 
 class MatchContext(BaseModel):
@@ -130,6 +132,9 @@ class MatchContext(BaseModel):
     away_form: Optional[TeamForm] = None
     head_to_head: Optional[H2HSummary] = None
     lineups: Optional[Lineups] = None
+    absences: list[Absence] = []
+    home_advanced: Optional[TeamAdvanced] = None
+    away_advanced: Optional[TeamAdvanced] = None
     data_availability: dict[str, str] = {}
     sources: list[SourceRecord] = []
     data_quality: Optional[DataQualityReport] = None
@@ -146,8 +151,11 @@ class ViewContext(BaseModel):
     away_form: Optional[TeamForm] = None
     head_to_head: Optional[H2HSummary] = None
     lineups: Optional[Lineups] = None
+    absences: list[Absence] = []
+    home_advanced: Optional[TeamAdvanced] = None
+    away_advanced: Optional[TeamAdvanced] = None
 
     @classmethod
     def of(cls, ctx: "MatchContext") -> "ViewContext":
-        return cls(standings=ctx.standings, home_form=ctx.home_form, away_form=ctx.away_form,
-                   head_to_head=ctx.head_to_head, lineups=ctx.lineups)
+        return cls(standings=ctx.standings, home_form=ctx.home_form, away_form=ctx.away_form, head_to_head=ctx.head_to_head,
+                   lineups=ctx.lineups, absences=ctx.absences, home_advanced=ctx.home_advanced, away_advanced=ctx.away_advanced)

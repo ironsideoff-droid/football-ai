@@ -107,3 +107,130 @@ def test_fetch_sends_browser_search_and_reports_provider_refusals():
     limit = WebResearch("k", "m", transport=httpx.MockTransport(lambda r: httpx.Response(429, json={"error": {"message": "rate limit"}})))
     with pytest.raises(WebResearchError, match="GROQ_API_KEY_4"):
         asyncio.run(limit.fetch(MATCH))
+
+
+# ---------------------------------------------------------------- Data Scout (fixtures follow the documented shapes of the
+# public ESPN / Understat payloads; they prove the parsers' logic, NOT that the live sites still use these shapes)
+import json as _json
+from datetime import datetime as _dt, timezone as _tz
+
+from football_data import scout as sc
+from schemas.scout import Absence
+
+
+def test_team_name_matching_handles_common_variants():
+    assert sc.same_team("Manchester United FC", "Manchester United")
+    assert sc.same_team("Internazionale", "Inter")
+    assert sc.same_team("Paris Saint-Germain FC", "Paris SG")
+    assert sc.same_team("1. FC Köln", "FC Koln")
+    assert not sc.same_team("Manchester United", "Manchester City")
+    assert not sc.same_team("Real Madrid", "Real Sociedad")
+
+
+def _roster(n_starters, formation="4-3-3"):
+    ps = [{"starter": True, "jersey": str(i + 1), "athlete": {"displayName": f"P{i}"}, "position": {"abbreviation": "G" if i == 0 else "CD" if i < 5 else "CM" if i < 8 else "F"}}
+          for i in range(n_starters)]
+    ps.append({"starter": False, "athlete": {"displayName": "Sub"}, "position": {"abbreviation": "F"}})
+    return {"formation": formation, "roster": ps}
+
+
+def test_espn_lineups_need_two_full_elevens():
+    ok = sc.parse_lineups({"rosters": [{"homeAway": "home", **_roster(11)}, {"homeAway": "away", **_roster(11, "4-4-2")}]})
+    assert ok and ok.home.formation == "4-3-3" and len(ok.away.starters) == 11 and ok.home.starters[0].position == "Goalkeeper"
+    assert ok.source == "ESPN"
+    assert sc.parse_lineups({"rosters": [{"homeAway": "home", **_roster(11)}, {"homeAway": "away", **_roster(7)}]}) is None
+    assert sc.parse_lineups({}) is None
+
+
+def test_espn_boxscore_stats_and_missing_values():
+    summ = {"boxscore": {"teams": [{"team": {"id": "9"}, "statistics": [
+        {"name": "totalShots", "displayValue": "14"}, {"name": "shotsOnTarget", "displayValue": "5"}, {"name": "possessionPct", "displayValue": "61.5"}]}]}}
+    assert sc.parse_boxscore_stats(summ, "9") == {"shots": 14.0, "sot": 5.0, "possession": 61.5}
+    assert sc.parse_boxscore_stats(summ, "10") == {}
+
+
+def _understat_html(teams: dict) -> str:
+    raw = _json.dumps(teams).encode().decode("unicode_escape") if False else _json.dumps(teams)
+    esc = "".join(f"\\x{ord(c):02x}" if c in "{}\":,[]" else c for c in raw)  # Understat hex-escapes JSON punctuation
+    return f"<script>var teamsData = JSON.parse('{esc}')</script>"
+
+
+def _hist(day, xg, xga, scored, missed, ha):
+    return {"date": f"2026-10-{day:02d} 15:00:00", "xG": str(xg), "xGA": str(xga), "scored": str(scored), "missed": str(missed), "h_a": ha}
+
+
+def test_understat_xg_and_league_averages():
+    teams = {"1": {"id": "1", "title": "Arsenal", "history": [_hist(d, 2.0, 0.5, 2, 0, "h" if d % 2 else "a") for d in range(1, 11)]},
+             "2": {"id": "2", "title": "Manchester City", "history": [_hist(d, 1.5, 1.0, 1, 1, "h" if d % 2 else "a") for d in range(1, 11)]}}
+    got = sc.parse_understat_teams(_understat_html(teams))
+    before = _dt(2026, 11, 1, tzinfo=_tz.utc)
+    adv = sc.understat_team_xg(got, "Arsenal FC", before)
+    assert adv and adv.matches == 6 and adv.xg_for_avg == 2.0 and adv.xg_against_avg == 0.5 and adv.source == "Understat"
+    assert sc.understat_team_xg(got, "Nobody United", before) is None
+    assert sc.understat_team_xg(got, "Arsenal", _dt(2026, 9, 1, tzinfo=_tz.utc)) is None  # no match before that date: never fabricate
+    assert sc.understat_league_averages(got, before) is None  # fewer than 20 home games: too thin to trust
+    with pytest.raises(ValueError):
+        sc.parse_understat_teams("<html>no data</html>")
+
+
+def test_scout_run_reports_each_source_independently_and_applies_only_what_it_found():
+    html = _understat_html({"1": {"id": "1", "title": "Arsenal", "history": [_hist(d, 2.0, 0.5, 2, 0, "h") for d in range(1, 8)]},
+                            "2": {"id": "2", "title": "Chelsea", "history": [_hist(d, 1.0, 1.0, 1, 1, "a") for d in range(1, 8)]}})
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if "understat.com" in str(req.url):
+            return httpx.Response(200, text=html)
+        return httpx.Response(503)  # ESPN down
+
+    match = _make_match("PL", "Arsenal FC", "Chelsea FC")
+    scout = sc.Scout(transport=httpx.MockTransport(handler))
+    rep = asyncio.run(scout.run(match))
+    assert "failed" in rep.notes["espn"] and rep.notes["understat"].startswith("xG found")
+    assert rep.home_adv and rep.home_adv.xg_for_avg == 2.0 and rep.lineups is None
+
+    ctx = _make_ctx(match)
+    sc.apply_scout(ctx, rep, [Absence(team="home", player="X", status="injured", source="s", url="https://s.test/a")], "n/a")
+    assert ctx.home_advanced.xg_for_avg == 2.0 and ctx.lineups is None and len(ctx.absences) == 1
+    assert ctx.data_availability["expected_goals_xg"].startswith("available")
+    assert ctx.data_availability["lineups_formations"].startswith("unavailable")
+    assert any(s.id == "understat" for s in ctx.sources)
+
+
+def _make_match(code, home, away):
+    from schemas.match import MatchSummary, TeamRef
+    return MatchSummary(id=1, utc_date="2026-11-01T15:00:00Z", status="TIMED", competition_code=code, competition="X",
+                        home=TeamRef(id=1, name=home), away=TeamRef(id=2, name=away))
+
+
+def _make_ctx(match):
+    from schemas.match import MatchContext
+    return MatchContext(match=match, retrieved_at="2026-11-01T00:00:00Z", data_availability={})
+
+
+def test_unmapped_competition_is_noted_not_guessed():
+    rep = asyncio.run(sc.Scout(transport=httpx.MockTransport(lambda r: httpx.Response(500))).run(_make_match("XYZ", "A", "B")))
+    assert "no ESPN league mapping" in rep.notes["espn"] and rep.home_adv is None
+
+
+def test_web_absences_need_a_url_found_in_the_evidence():
+    from football_data.web_research import parse_absences
+    evidence = "search result page https://good.test/team-news about the squad"
+    data = {"absences": [
+        {"team": "home", "player": "A Player", "status": "injured", "detail": "hamstring", "url": "https://good.test/team-news", "source": "Good"},
+        {"team": "home", "player": "B Player", "status": "suspended", "url": "https://invented.test/x", "source": "Bad"},
+        {"team": "away", "player": "C Player", "status": "injured", "url": "", "source": "NoUrl"},
+        {"team": "away", "player": "A Player", "status": "weird", "url": "https://good.test/team-news"}]}
+    out = parse_absences(data, evidence)
+    assert [(a.team, a.player, a.status) for a in out] == [("home", "A Player", "injured"), ("away", "A Player", "unknown")]
+
+
+def test_quality_counts_scraped_data_and_names_what_is_still_missing():
+    from football_data.source_manager import assess_quality
+    from schemas.scout import TeamAdvanced
+    ctx = _make_ctx(_make_match("PL", "A", "B"))
+    base = assess_quality(ctx)
+    ctx.home_advanced = TeamAdvanced(team="A", source="Understat", matches=5, xg_for_avg=1.8, xg_against_avg=0.9)
+    ctx.absences = [Absence(team="home", player="X", source="s")]
+    better = assess_quality(ctx)
+    assert better.score > base.score and better.components["xg"] and better.components["injuries_suspensions"]
+    assert not better.components["lineups"] and any("Confirmed lineups: not found" in i.detail for i in better.issues)

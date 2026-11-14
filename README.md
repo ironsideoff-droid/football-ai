@@ -172,3 +172,18 @@ Stripe webhook: add the endpoint `https://<your-app>/api/billing/webhook` with t
   marked as lower-reliability summaries for the agents. If it fails (rate limit, timeout) the analysis simply continues without it.
 * **Not available from any free source used here:** xG, shots and possession. The app says so in the data-quality report and never invents them.
   Confirmed lineups appear on the pitch view only if the football data provider supplies them.
+
+## Agent 4: Data Scout
+
+Fills gaps football-data.org leaves open, and always shows where each number came from:
+
+| Data | Source | Notes |
+|---|---|---|
+| Confirmed lineups + formations | ESPN public site API | usually published about an hour before kickoff |
+| Shots, shots on target, possession | ESPN, averaged over the teams' last finished matches | |
+| xG / xGA (last 6 matches), league home/away goal averages | Understat | big-5 leagues only |
+| Injuries / suspensions | web research (Groq `browser_search`, `GROQ_API_KEY_4`) | every claim needs a URL that appears in the search evidence; shown as unverified |
+
+These are unofficial endpoints and their format can change without notice; a source that fails is reported in the progress panel
+("Agent 4: Data Scout") and the analysis continues without it. Check each site's terms of use before running this commercially.
+Set `SCOUT_ENABLED=false` to turn scraping off.

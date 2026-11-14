@@ -15,8 +15,10 @@ and retrieval time), `data_quality` (score and issues) and `data_availability` (
 
 Your job: a careful statistical profile of both teams. Use only numbers that appear in, or can be computed directly from,
 the supplied data. Cite a `source_id` from `sources` for every important finding and copy its reliability.
-xG, xGA, shots, possession, injuries, suspensions and lineups are NOT supplied unless listed as available: report them as
-unavailable (player_availability.status = "unavailable", advanced_stats_status = "not provided") instead of estimating them.
+xG, xGA, shots, possession, injuries, suspensions and lineups are supplied ONLY when present in `home_advanced`/`away_advanced`
+(scraped recent-match averages, with their source), `absences` (web-research claims, unverified, each with a URL) and `lineups`; the
+`data_availability` entries say which. Use them as given and name their source. Anything not supplied must be reported as unavailable
+(player_availability.status = "unavailable", advanced_stats_status = "not provided") instead of being estimated.
 Do not use background knowledge for facts about the current season. Mention outdated data (long rest, stale form).
 """ + COMMON_RULES + """
 JSON shape:

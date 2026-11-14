@@ -19,6 +19,7 @@ from config import AGENT_NAMES, Settings, load_settings
 from billing.accounts import Accounts, User, is_active, is_admin
 from billing.stripe_service import Billing
 from errors import AppError, AuthRequiredError, ConfigError, SubscriptionRequiredError
+from football_data.scout import Scout
 from football_data.provider import FootballDataOrgProvider, FootballProvider
 from evaluation import backtesting, metrics
 from evaluation.store import PredictionStore
@@ -90,6 +91,13 @@ def create_app(
             state["web"] = WebResearch(key, settings.web_research_model, settings.groq_base_url)
         return state["web"]
 
+    def get_scout():
+        if not settings.scout_enabled:
+            return None
+        if state.get("scout") is None:
+            state["scout"] = Scout()
+        return state["scout"]
+
     def get_orchestrator() -> Orchestrator:
         if state["orchestrator"] is None:
             missing = settings.missing_groq()
@@ -108,6 +116,7 @@ def create_app(
                 news=get_news(),
                 store=store,
                 web=get_web(),
+                scout=get_scout(),
                 goal_cfg=GoalModelConfig(model=settings.goal_model, dc_rho=settings.dc_rho, bp_share=settings.bp_share),  # type: ignore[arg-type]
             )
         return state["orchestrator"]
@@ -123,6 +132,8 @@ def create_app(
             await state["news"].aclose()
         if state.get("web") is not None:
             await state["web"].aclose()
+        if state.get("scout") is not None:
+            await state["scout"].aclose()
         await accounts.aclose()
 
     app = FastAPI(title="TACTIQ", lifespan=lifespan)
@@ -147,6 +158,7 @@ def create_app(
             "warnings": [warning] if warning else [],
             "news_enabled": settings.news_enabled,
             "goal_model": settings.goal_model,
+            "scout": {"enabled": settings.scout_enabled},
             "web_research": {"enabled": settings.web_research, "model": settings.web_research_model, "own_key": bool(settings.web_research_key)},
         }
 

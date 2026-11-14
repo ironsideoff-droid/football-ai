@@ -15,7 +15,9 @@ export interface StandingRow { position: number; team: string; played: number; w
 export interface StandingsCtx { table_size: number; home_team_overall?: StandingRow | null; away_team_overall?: StandingRow | null; home_team_at_home?: StandingRow | null; away_team_away?: StandingRow | null }
 export interface LineupPlayer { name: string; position?: string | null; shirt_number?: number | null }
 export interface TeamLineup { formation?: string | null; coach?: string | null; starters: LineupPlayer[] }
-export interface ViewContext { standings?: StandingsCtx | null; home_form?: TeamForm | null; away_form?: TeamForm | null; head_to_head?: H2H | null; lineups?: { home: TeamLineup; away: TeamLineup } | null }
+export interface ViewContext { standings?: StandingsCtx | null; home_form?: TeamForm | null; away_form?: TeamForm | null; head_to_head?: H2H | null; lineups?: { home: TeamLineup; away: TeamLineup; source?: string | null } | null; absences?: Absence[]; home_advanced?: TeamAdvanced | null; away_advanced?: TeamAdvanced | null }
+export interface Absence { team: "home" | "away"; player: string; status: "injured" | "suspended" | "doubtful" | "unknown"; detail?: string | null; source: string; url?: string | null }
+export interface TeamAdvanced { team: string; source: string; url?: string | null; matches: number; xg_for_avg?: number | null; xg_against_avg?: number | null; shots_avg?: number | null; shots_on_target_avg?: number | null; possession_avg?: number | null }
 export interface Step { key: string; label: string; status: "pending" | "running" | "done" | "error"; message?: string | null }
 
 export type Reliability = "high" | "medium" | "low" | "unknown";

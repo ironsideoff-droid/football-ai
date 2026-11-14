@@ -101,13 +101,23 @@ def assess_quality(ctx: MatchContext, news: Optional[NewsBundle] = None) -> Data
     if not have["head_to_head"]:
         add("missing", "info", "No head-to-head history available.")
 
-    for key, text in (
-        ("injuries_suspensions", "Injuries and suspensions: not provided by the football data API."),
-        ("lineups", "Confirmed lineups: not provided by the football data API."),
-        ("xg", "Expected goals (xG/xGA): not provided by the football data API."),
-        ("shots_possession", "Shots, shots on target and possession: not provided by the football data API."),
+    have["injuries_suspensions"] = bool(ctx.absences)
+    have["lineups"] = ctx.lineups is not None
+    advs = [a for a in (ctx.home_advanced, ctx.away_advanced) if a]
+    have["xg"] = any(a.xg_for_avg is not None for a in advs)
+    have["shots_possession"] = any(a.shots_avg is not None or a.possession_avg is not None for a in advs)
+    av = ctx.data_availability
+    for key, label, avail in (
+        ("injuries_suspensions", "Injuries and suspensions", "injuries_suspensions"),
+        ("lineups", "Confirmed lineups", "lineups_formations"),
+        ("xg", "Expected goals (xG/xGA)", "expected_goals_xg"),
+        ("shots_possession", "Shots, shots on target and possession", "advanced_stats"),
     ):
-        add("missing", "info", text)
+        if not have[key]:
+            reason = av.get(avail, "").removeprefix("unavailable: ")
+            add("missing", "info", f"{label}: not found" + (f" ({reason})" if reason else "."))
+    if ctx.absences:
+        add("unverified", "info", "Injury/suspension claims come from web research pages and are not confirmed by the clubs.")
 
     if news is None or news.status in ("disabled", "unavailable") or not news.items:
         reason = "disabled" if news and news.status == "disabled" else "unavailable or empty"

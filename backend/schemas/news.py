@@ -4,6 +4,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+from schemas.scout import Absence
 from schemas.sources import Reliability
 
 
@@ -27,3 +28,4 @@ class NewsBundle(BaseModel):
     errors: list[str] = []
     retrieved_at: str = ""
     provider: str = ""
+    absences: list[Absence] = []  # structured injury/suspension claims found by web research

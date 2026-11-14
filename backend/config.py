@@ -40,6 +40,7 @@ class Settings:
     stripe_webhook_secret: str = ""
     stripe_price_id: str = ""  # optional; otherwise a 9.99 EUR/month price is created inline
     app_url: str = ""
+    scout_enabled: bool = True  # Agent 4 scraping (ESPN, Understat); each source fails independently
     web_research: bool = False
     web_research_model: str = "openai/gpt-oss-20b"
     web_research_key: str = ""
@@ -81,6 +82,7 @@ def load_settings() -> Settings:
         stripe_webhook_secret=(env("STRIPE_WEBHOOK_SECRET") or "").strip(),
         stripe_price_id=(env("STRIPE_PRICE_ID") or "").strip(),
         admin_emails=tuple(e.strip().lower() for e in (env("ADMIN_EMAILS") or "").split(",") if e.strip()),
+        scout_enabled=(env("SCOUT_ENABLED", "true").lower() != "false"),
         web_research=(env("WEB_RESEARCH", "false").lower() == "true"),
         web_research_model=(env("WEB_RESEARCH_MODEL") or "openai/gpt-oss-20b").strip(),
         web_research_key=(env("GROQ_API_KEY_4") or "").strip(),

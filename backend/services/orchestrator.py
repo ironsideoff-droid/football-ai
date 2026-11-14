@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -12,6 +13,7 @@ from errors import AppError, ImmutablePredictionError, InsufficientDataError
 from evaluation.store import PredictionStore
 from football_data.news import NewsProvider
 from football_data.provider import FootballProvider
+from football_data.scout import apply_scout
 from football_data.source_manager import assess_quality, news_freshness, now_iso
 from schemas.agent_reports import ChiefPrediction
 from schemas.match import MatchContext, ViewContext
@@ -22,9 +24,12 @@ from simulation.goal_model import GoalModelConfig
 from simulation.monte_carlo import N_SIMULATIONS, run_simulation
 from simulation.parameter_engine import build_priors
 
+log = logging.getLogger("orchestrator")
+
 STEPS = [
     ("data", "Football data"),
     ("news", "News sources"),
+    ("scout", "Agent 4: Data Scout (scraping + web research)"),
     ("researcher", "Agent 1: Statistical Researcher"),
     ("intelligence", "Agent 2: Football Intelligence"),
     ("chief_plan", "Agent 3: assessment and scenarios"),
@@ -110,10 +115,12 @@ class Orchestrator:
         goal_cfg: Optional[GoalModelConfig] = None,
         simulate: Callable = run_simulation,
         web=None,
+        scout=None,
     ):
         self.provider, self.researcher, self.intelligence, self.chief = provider, researcher, intelligence, chief
         self.news, self.store, self.goal_cfg, self.simulate = news, store, goal_cfg or GoalModelConfig(), simulate
         self.web = web  # optional WebResearch
+        self.scout = scout  # optional football_data.scout.Scout
 
     async def _step(self, progress: Progress, key: str, coro, message: Optional[str] = None):
         progress.start(key, message)
@@ -139,7 +146,12 @@ class Orchestrator:
         if self.web is not None:  # optional deep research; any failure only skips it
             bundle = bundle.model_copy(update={"items": list(bundle.items), "errors": list(bundle.errors)})  # never edit the provider's own object
             try:
-                found = await asyncio.wait_for(self.web.fetch(ctx.match), timeout=120)
+                fetch_all = getattr(self.web, "fetch_all", None)
+                if fetch_all:
+                    found, absences = await asyncio.wait_for(fetch_all(ctx.match), timeout=120)
+                    bundle.absences = list(absences)
+                else:
+                    found = await asyncio.wait_for(self.web.fetch(ctx.match), timeout=120)
                 known = {re.sub(r"\W+", " ", i.title.lower()) for i in bundle.items}
                 bundle.items = [*bundle.items, *[i for i in found if re.sub(r"\W+", " ", i.title.lower()) not in known]]
                 if bundle.status in ("unavailable", "disabled") and found:
@@ -180,7 +192,25 @@ class Orchestrator:
         warnings: list[str] = []
 
         progress.start("news")
-        news = await self._fetch_news(ctx)
+        progress.start("scout")
+
+        async def run_scout():
+            if self.scout is None:
+                return None
+            try:
+                return await asyncio.wait_for(self.scout.run(ctx.match), timeout=60)
+            except Exception as exc:  # noqa: BLE001  scraping is optional
+                log.warning("scout failed: %s", exc)
+                return None
+
+        news, scouted = await asyncio.gather(self._fetch_news(ctx), run_scout())
+        if scouted is not None:
+            web_err = next((e for e in news.errors if e.startswith("Web research skipped")), None)
+            web_note = web_err or ("web research is disabled" if self.web is None else "web research found no reported absences")
+            apply_scout(ctx, scouted, news.absences, web_note)
+            progress.done("scout", "; ".join(f"{k}: {v}" for k, v in scouted.notes.items())[:300] + f"; {len(news.absences)} absences")
+        else:
+            progress.done("scout", "Scraping disabled" if self.scout is None else "Scraping failed: continued without it")
         progress.done("news", f"{sum(1 for i in news.items if i.origin == 'rss')} headlines" + (f" + {sum(1 for i in news.items if i.origin == 'web_research')} web findings" if any(i.origin == "web_research" for i in news.items) else "") if news.items else (news.errors[0] if news.errors else news.status))
         ctx.sources = [*ctx.sources, *[
             SourceRecord(id=i.item_id, name=i.source, url=i.link, retrieved_at=news.retrieved_at, published_at=i.published_at,
