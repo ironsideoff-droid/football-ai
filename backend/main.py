@@ -179,7 +179,7 @@ def create_app(
         return {
             "auth_disabled": settings.auth_disabled,
             "supabase_url": settings.supabase_url, "supabase_anon_key": settings.supabase_anon_key,
-            "price": {"amount": settings.price_cents / 100, "currency": settings.price_currency.upper(), "interval": "month"},
+            "price": {"amount": settings.price_cents / 100, "display_amount": settings.display_price_cents / 100, "currency": settings.price_currency.upper(), "interval": "month"},
         }
 
     @app.get("/api/me")

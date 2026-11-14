@@ -46,7 +46,8 @@ class Settings:
     web_research_model: str = "openai/gpt-oss-20b"
     web_research_key: str = ""
     admin_emails: tuple[str, ...] = ()  # these verified accounts use the app without paying
-    price_cents: int = 999
+    price_cents: int = 999  # what Stripe charges before taxes
+    display_price_cents: int = 1298  # price shown to customers (the total Stripe displays at checkout, taxes included)
     price_currency: str = "eur"
 
     def agent(self, index: int) -> AgentConfig:
@@ -79,6 +80,7 @@ def load_settings() -> Settings:
         supabase_url=(env("SUPABASE_URL") or "").strip().rstrip("/"),
         supabase_anon_key=(env("SUPABASE_ANON_KEY") or "").strip(),
         supabase_service_key=(env("SUPABASE_SERVICE_KEY") or "").strip(),
+        display_price_cents=int(env("DISPLAY_PRICE_CENTS") or 1298),
         stripe_secret_key=(env("STRIPE_SECRET_KEY") or "").strip(),
         stripe_webhook_secret=(env("STRIPE_WEBHOOK_SECRET") or "").strip(),
         stripe_price_id=(env("STRIPE_PRICE_ID") or "").strip(),

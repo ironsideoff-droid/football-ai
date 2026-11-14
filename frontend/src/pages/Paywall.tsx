@@ -9,13 +9,16 @@ export default function Paywall({ me, cfg, checking }: { me: Me; cfg: PublicConf
     setBusy(true); setError(null);
     try { window.location.href = (await fn()).url; } catch (e) { setError((e as ApiError).message); setBusy(false); }
   };
-  const price = new Intl.NumberFormat(undefined, { style: "currency", currency: cfg.price.currency }).format(cfg.price.amount);
+  const fmt = (v: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: cfg.price.currency }).format(v);
+  const price = fmt(cfg.price.display_amount ?? cfg.price.amount);
+  const base = fmt(cfg.price.amount);
   const past = me.has_billing_account;
   return (
     <main>
       <section className="panel authbox">
         <h2>{past ? "Your subscription is not active" : "Unlock TACTIQ"}</h2>
         <p className="price">{price}<span className="muted small"> / month</span></p>
+        <p className="muted small">{base} + applicable taxes. The exact total depends on your country and is shown by Stripe before you pay.</p>
         <ul className="small">
           <li>Three AI agents analyse every fixture</li>
           <li>50,000 simulated matches per prediction</li>

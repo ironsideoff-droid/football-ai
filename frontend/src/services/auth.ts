@@ -4,7 +4,7 @@ export interface PublicConfig {
   auth_disabled: boolean;
   supabase_url: string;
   supabase_anon_key: string;
-  price: { amount: number; currency: string; interval: string };
+  price: { amount: number; display_amount?: number; currency: string; interval: string };
 }
 
 let client: SupabaseClient | null = null;
