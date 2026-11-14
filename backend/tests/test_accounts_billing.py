@@ -56,7 +56,7 @@ def test_public_routes_stay_open_and_data_routes_need_login(tmp_path):
     c, _ = make_app(tmp_path)
     assert c.get("/api/health").status_code == 200
     cfg = c.get("/api/config").json()
-    assert cfg["price"] == {"amount": 9.99, "currency": "EUR", "interval": "month"} and "service" not in json.dumps(cfg)
+    assert cfg["price"] == {"amount": 9.99, "display_amount": 12.98, "currency": "EUR", "interval": "month"} and "service" not in json.dumps(cfg)
     for method, path in [("get", "/api/fixtures"), ("post", "/api/analyze/start"), ("get", "/api/evaluation"), ("get", "/api/me"), ("get", "/api/jobs/x")]:
         r = getattr(c, method)(path)
         assert r.status_code == 401 and r.json()["error"]["code"] == "auth_required", path
