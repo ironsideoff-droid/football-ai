@@ -356,3 +356,14 @@ h2::before, h3::before { content: ""; width: 4px; height: 0.9em; border-radius: 
 .scout-abs { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 14px; }
 .scout-abs ul { list-style: none; padding: 0; margin: 6px 0; display: grid; gap: 6px; }
 .chip.st-injured { color: #ff8f8f; } .chip.st-suspended { color: #ffcf66; } .chip.st-doubtful { color: #9fd0ff; }
+
+/* Deep search + regimes */
+.deep-total { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 4px 0 14px; }
+.deep-total strong { font: 700 3rem/1 var(--display); color: var(--amber); }
+.deep-engines { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.deep-engine { text-align: left; display: grid; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid #7fa0ff24; background: #0a1b44a0; color: inherit; cursor: pointer; font: inherit; }
+.deep-engine.on { border-color: var(--teal); box-shadow: 0 0 0 1px var(--teal) inset; }
+.deep-topics { margin: 8px 0 12px; }
+.deep-list { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 8px; max-height: 520px; overflow: auto; }
+.deep-list li { line-height: 1.35; }
+.scenarios.compact { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }

@@ -292,3 +292,29 @@ def test_scout_data_reaches_the_result_and_scout_failure_never_stops_the_analysi
 
     bad = asyncio.run(build(context, news_bundle, scout=Scout(exc=RuntimeError("blocked"))).analyze(100))
     assert not bad.abstained and bad.context.lineups is None
+
+
+def test_deep_search_feeds_each_agent_and_its_failure_never_stops_the_analysis(context, news_bundle):
+    from schemas.deep import DeepItem, DeepSearchSummary, EngineSummary
+
+    def item(engine, i):
+        return DeepItem(item_id=f"d{engine[0]}-{i}", engine=engine, topic="injuries", team="home", title=f"{engine} headline {i}", source="BBC", link=f"https://n.test/{engine}/{i}")
+
+    kept = {e: [item(e, i) for i in range(30)] for e in ("statistical", "intelligence", "tactical", "context")}
+
+    class Deep:
+        def __init__(self, exc=None):
+            self.exc = exc
+
+        async def run(self, match):
+            if self.exc:
+                raise self.exc
+            engines = [EngineSummary(key=k, label=k, focus="x", found=len(v)) for k, v in kept.items()]
+            return DeepSearchSummary(total=120, engines=engines, items=[i for v in kept.values() for i in v]), kept
+
+    ok = asyncio.run(build(context, news_bundle, deep=Deep()).analyze(100))
+    assert not ok.abstained and ok.deep_search.total == 120
+    assert any(s.id.startswith("ds-") for s in ok.sources) and any(s.id.startswith("dc-") for s in ok.sources)
+
+    bad = asyncio.run(build(context, news_bundle, deep=Deep(RuntimeError("blocked"))).analyze(100))
+    assert not bad.abstained and bad.deep_search is None

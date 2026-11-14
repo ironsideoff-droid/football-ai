@@ -234,3 +234,54 @@ def test_quality_counts_scraped_data_and_names_what_is_still_missing():
     better = assess_quality(ctx)
     assert better.score > base.score and better.components["xg"] and better.components["injuries_suspensions"]
     assert not better.components["lineups"] and any("Confirmed lineups: not found" in i.detail for i in better.issues)
+
+
+# ---------------------------------------------------------------- deep search (4 role-based engines)
+def _rss(n, tag, team="Arsenal"):
+    items = "".join(f"<item><title>{team} {tag} story {i} - Src{i % 5}</title><link>https://n.test/{tag}/{i}</link><source url='https://src{i % 5}.test'>Src{i % 5}</source>"
+                    f"<pubDate>Thu, 12 Nov 2026 10:00:00 GMT</pubDate></item>" for i in range(n))
+    return f"<rss><channel>{items}</channel></rss>"
+
+
+def test_deep_search_collects_per_engine_dedupes_and_caps_at_300():
+    from football_data.deep_search import DeepSearch, MAX_TOTAL, PER_ENGINE_CAP, digest
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        q = req.url.params["q"]
+        team = "Chelsea" if '"Chelsea FC" football' in q and '"Arsenal FC"' not in q.split("football")[0] else "Arsenal"
+        return httpx.Response(200, text=_rss(40, abs(hash(q)) % 10**8, team))  # every query returns 40 distinct headlines
+
+    m = _make_match("PL", "Arsenal FC", "Chelsea FC")
+    summary, kept = asyncio.run(DeepSearch(transport=httpx.MockTransport(handler), clock=lambda: 0).run(m))
+    assert summary.total == MAX_TOTAL == 300 and not summary.below_target
+    assert {e.key for e in summary.engines} == {"statistical", "intelligence", "tactical", "context"}
+    assert all(e.found == PER_ENGINE_CAP for e in summary.engines) and summary.queries > 60
+    assert len({i.title for i in summary.items}) == 300  # no duplicates across engines
+    d = digest(summary, kept["tactical"])
+    assert d["headlines_found"] == 75 and len(d["items"]) == 24 and d["items"][0]["id"].startswith("dt-")
+
+
+def test_deep_search_reports_a_short_result_honestly_and_survives_failures():
+    from football_data.deep_search import DeepSearch
+    calls = {"n": 0}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] % 3 == 0:
+            return httpx.Response(503)
+        return httpx.Response(200, text=_rss(2, calls["n"]))
+
+    summary, _ = asyncio.run(DeepSearch(transport=httpx.MockTransport(handler), clock=lambda: 0).run(_make_match("PL", "Arsenal FC", "Chelsea FC")))
+    assert summary.below_target and summary.failed_queries > 0 and 0 < summary.total < 100
+    assert any("nothing was padded" in n for n in summary.notes)
+
+
+def test_deep_search_drops_headlines_that_do_not_mention_the_team_and_classifies_topics():
+    from football_data.deep_search import DeepSearch, classify_topic
+    xml = ("<rss><channel><item><title>Totally unrelated cricket news - X</title><link>https://n.test/1</link><source url='https://x.test'>X</source>"
+           "<pubDate>Thu, 12 Nov 2026 10:00:00 GMT</pubDate></item><item><title>Arsenal striker ruled out with hamstring injury - BBC</title>"
+           "<link>https://n.test/2</link><source url='https://bbc.co.uk'>BBC</source><pubDate>Thu, 12 Nov 2026 10:00:00 GMT</pubDate></item></channel></rss>")
+    summary, _ = asyncio.run(DeepSearch(transport=httpx.MockTransport(lambda r: httpx.Response(200, text=xml)), clock=lambda: 0)
+                             .run(_make_match("PL", "Arsenal FC", "Chelsea FC")))
+    assert [i.title for i in summary.items] == ["Arsenal striker ruled out with hamstring injury"] and summary.items[0].topic == "injuries"
+    assert classify_topic("Predicted lineup and formation for Sunday") == "lineups" and classify_topic("Weather forecast") == "referee_conditions"

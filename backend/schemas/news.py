@@ -10,7 +10,7 @@ from schemas.sources import Reliability
 
 class NewsItem(BaseModel):
     item_id: str
-    team: Literal["home", "away"]
+    team: Literal["home", "away", "both"]
     team_name: str
     title: str
     source: str

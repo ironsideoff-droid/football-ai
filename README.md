@@ -187,3 +187,16 @@ Fills gaps football-data.org leaves open, and always shows where each number cam
 These are unofficial endpoints and their format can change without notice; a source that fails is reported in the progress panel
 ("Agent 4: Data Scout") and the analysis continues without it. Check each site's terms of use before running this commercially.
 Set `SCOUT_ENABLED=false` to turn scraping off.
+
+## Deep search and variety
+
+**Deep search** runs four role-based engines of Google News RSS searches (about 78 searches per match, cached 30 minutes), each owned by one analysis role:
+statistics (Statistical Researcher), off-pitch news (Football Intelligence), lineups, formations and key players' output (Agent 4), and match context such as
+previews, referee, weather, stakes and schedule (Chief Predictor). Headlines must mention one of the teams and be at most 30 days old; duplicates are removed
+across engines and each engine keeps at most 75 (300 in total). The target is 100+; if fewer exist the result says so and nothing is padded. The agents receive
+a digest of their own engine, because 300 headlines do not fit free-tier token limits; the full list with links is shown in the app. `DEEP_SEARCH_ENABLED=false` turns it off.
+
+**Variety**: besides the Chief's matchup scenarios (4-8), every simulation belongs to a built-in *match style* (cagey / balanced / open / chaotic) and a *control*
+regime (home / even / away), gets random on-the-day form shocks, in-match momentum after scoring and a chance of a key in-match injury. These are
+mean-preserving approximations that widen the spread of results without changing expected goals; they are not fitted to data. `GoalModelConfig.chaos`
+(0 = off, 1 = default, 2 = double) scales them; check any change with the backtest before relying on it.

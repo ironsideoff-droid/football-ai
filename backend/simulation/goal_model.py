@@ -28,7 +28,11 @@ N_SEGMENTS = 6
 SEGMENT_WEIGHTS = np.array([0.142, 0.158, 0.166, 0.166, 0.175, 0.193])
 RED_CARD_PER_TEAM_MATCH = 0.045  # approx. 0.09 red cards per top-flight match
 RED_OWN_MULT, RED_OPP_MULT = 0.70, 1.30  # scoring-rate change for the team that is down to ten / its opponent
-TRAIL_BOOST, LEAD_DAMP, STATE_CAP = 0.06, 0.04, 2  # score effects per goal of difference, capped at 2 goals
+TRAIL_BOOST, LEAD_DAMP, STATE_CAP = 0.06, 0.04, 2
+MOMENTUM_BOOST = 0.04  # scoring-rate rise in the segment after a team scored (mixed evidence; kept small)
+MOMENTUM_NEUTRALISER = 0.991  # ~ 1 / (1 + 0.04 * P(scored in the previous segment)): keeps the average goal rate unchanged
+INMATCH_INJURY_PER_TEAM = 0.10  # a key player is forced off at some point
+INJURY_OWN_MULT = 0.94  # score effects per goal of difference, capped at 2 goals
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,8 @@ class GoalModelConfig:
     dynamics: bool = True
     dc_rho: float = -0.10
     bp_share: float = 0.0
+    variety: bool = True  # match-style/control regimes (monte_carlo) and in-match momentum + injuries (here)
+    chaos: float = 1.0  # 0 = off, 1 = default, up to 2: scales every variety effect
 
     def describe(self) -> dict[str, Any]:
         d = asdict(self)
@@ -45,7 +51,8 @@ class GoalModelConfig:
         d["event_assumptions"] = {
             "red_card_per_team_match": RED_CARD_PER_TEAM_MATCH, "red_card_own_rate_multiplier": RED_OWN_MULT,
             "red_card_opponent_rate_multiplier": RED_OPP_MULT, "trailing_boost_per_goal": TRAIL_BOOST,
-            "leading_damping_per_goal": LEAD_DAMP, "source": "literature approximations, not fitted to this match's data",
+            "leading_damping_per_goal": LEAD_DAMP, "momentum_boost_after_scoring": MOMENTUM_BOOST * self.chaos if self.variety else 0.0,
+            "inmatch_key_injury_per_team": INMATCH_INJURY_PER_TEAM * min(1.0, self.chaos) if self.variety else 0.0, "source": "literature approximations, not fitted to this match's data",
         }
         return d
 
@@ -66,6 +73,11 @@ def simulate_goals(rng: np.random.Generator, lam_h: np.ndarray, lam_a: np.ndarra
     red_h, red_a = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
     seg_h, seg_a = np.zeros((n, N_SEGMENTS), dtype=np.int64), np.zeros((n, N_SEGMENTS), dtype=np.int64)
     ht_h = ht_a = None
+    var = cfg.dynamics and cfg.variety and cfg.chaos > 0
+    prev_h = prev_a = np.zeros(n, dtype=bool)
+    inj_p = INMATCH_INJURY_PER_TEAM * min(1.0, cfg.chaos)
+    inj_h = np.where(rng.random(n) < inj_p, rng.integers(1, N_SEGMENTS, n), N_SEGMENTS + 1) if var else np.full(n, N_SEGMENTS + 1)  # segment of the injury
+    inj_a = np.where(rng.random(n) < inj_p, rng.integers(1, N_SEGMENTS, n), N_SEGMENTS + 1) if var else np.full(n, N_SEGMENTS + 1)
     for seg in range(N_SEGMENTS):  # time segments only: each step is vectorised over all simulated matches
         w = SEGMENT_WEIGHTS[seg]
         mult_h = mult_a = np.ones(n)
@@ -75,6 +87,10 @@ def simulate_goals(rng: np.random.Generator, lam_h: np.ndarray, lam_a: np.ndarra
             mult_a = np.where(diff > 0, 1 + TRAIL_BOOST * diff, 1 + LEAD_DAMP * diff)
             mult_h = mult_h * np.where(red_h, RED_OWN_MULT, 1.0) * np.where(red_a, RED_OPP_MULT, 1.0)
             mult_a = mult_a * np.where(red_a, RED_OWN_MULT, 1.0) * np.where(red_h, RED_OPP_MULT, 1.0)
+        if var:
+            boost = MOMENTUM_BOOST * cfg.chaos
+            mult_h = mult_h * np.where(prev_h, 1 + boost, 1.0) * MOMENTUM_NEUTRALISER * np.where(inj_h <= seg, INJURY_OWN_MULT, 1.0)
+            mult_a = mult_a * np.where(prev_a, 1 + boost, 1.0) * MOMENTUM_NEUTRALISER * np.where(inj_a <= seg, INJURY_OWN_MULT, 1.0)
         rate_h, rate_a = lam_h * w * mult_h, lam_a * w * mult_a
         shared = np.zeros(n, dtype=np.int64)
         if cfg.model == "bivariate" and cfg.bp_share > 0:
@@ -84,6 +100,7 @@ def simulate_goals(rng: np.random.Generator, lam_h: np.ndarray, lam_a: np.ndarra
         gh, ga = rng.poisson(rate_h) + shared, rng.poisson(rate_a) + shared
         seg_h[:, seg], seg_a[:, seg] = gh, ga
         home, away = home + gh, away + ga
+        prev_h, prev_a = gh > 0, ga > 0
         if cfg.dynamics:
             red_h |= rng.random(n) < RED_CARD_PER_TEAM_MATCH * w
             red_a |= rng.random(n) < RED_CARD_PER_TEAM_MATCH * w
@@ -95,8 +112,10 @@ def simulate_goals(rng: np.random.Generator, lam_h: np.ndarray, lam_a: np.ndarra
         idx = rng.choice(n, size=n, replace=True, p=weights / weights.sum())
         home, away, ht_h, ht_a = home[idx], away[idx], ht_h[idx], ht_a[idx]  # type: ignore[index]
         seg_h, seg_a, red_h, red_a = seg_h[idx], seg_a[idx], red_h[idx], red_a[idx]
+        inj_h, inj_a = inj_h[idx], inj_a[idx]
         resampled = idx
     else:
         resampled = np.arange(n)
     return {"home": home, "away": away, "ht_home": ht_h, "ht_away": ht_a, "seg_home": seg_h, "seg_away": seg_a,  # type: ignore[dict-item]
-            "red_home": red_h, "red_away": red_a, "index": resampled}
+            "red_home": red_h, "red_away": red_a, "inj_home": inj_h <= N_SEGMENTS - 1, "inj_away": inj_a <= N_SEGMENTS - 1,
+            "index": resampled}

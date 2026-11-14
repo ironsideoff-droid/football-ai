@@ -8,6 +8,7 @@ import MatchPitch from "../components/MatchPitch";
 import TeamCompare from "../components/TeamCompare";
 import ScoutPanel from "../components/ScoutPanel";
 import ScenarioPanel from "../components/ScenarioPanel";
+import DeepSearchPanel from "../components/DeepSearchPanel";
 import SimulationResults from "../components/SimulationResults";
 import { ApiError, getFixtures, getHealth, getJob, startAnalysis } from "../services/api";
 import type { AnalysisResult, Health, MatchSummary, Step } from "../types";
@@ -125,7 +126,16 @@ export default function Home() {
           </section>
           {result.context && <TeamCompare result={result} ctx={result.context} />}
           {result.context && <ScoutPanel result={result} ctx={result.context} />}
+          {result.deep_search && <DeepSearchPanel deep={result.deep_search} home={result.match.home.name} away={result.match.away.name} />}
           <ScenarioPanel scenarios={result.simulation.scenarios} home={result.match.home.name} away={result.match.away.name} />
+          {!!result.simulation.match_styles?.length && (
+            <ScenarioPanel compact title="Match styles" scenarios={result.simulation.match_styles} home={result.match.home.name} away={result.match.away.name}
+              intro="Every match has its own tempo. These built-in regimes (not fitted to this match) are mixed into all 50,000 simulations: cagey games have fewer goals, open ones more. They are balanced so the average goals stay on the data-derived level, but outcomes spread out more, as real football does." />
+          )}
+          {!!result.simulation.control_regimes?.length && (
+            <ScenarioPanel compact title="Who controls the game" scenarios={result.simulation.control_regimes} home={result.match.home.name} away={result.match.away.name}
+              intro="In some matches one side dictates play. These symmetric regimes, plus random on-the-day finishing luck, momentum after a goal and in-match injuries, add the variety and randomness of real matches without changing the average." />
+          )}
           <SimulationResults sim={result.simulation} home={result.match.home.name} away={result.match.away.name} />
           <AnalysisPanel result={result} />
         </>

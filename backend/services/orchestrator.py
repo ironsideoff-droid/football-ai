@@ -12,12 +12,13 @@ from agents.statistical_researcher import StatisticalResearcherAgent
 from errors import AppError, ImmutablePredictionError, InsufficientDataError
 from evaluation.store import PredictionStore
 from football_data.news import NewsProvider
+from football_data.deep_search import digest as deep_digest
 from football_data.provider import FootballProvider
 from football_data.scout import apply_scout
 from football_data.source_manager import assess_quality, news_freshness, now_iso
 from schemas.agent_reports import ChiefPrediction
 from schemas.match import MatchContext, ViewContext
-from schemas.news import NewsBundle
+from schemas.news import NewsBundle, NewsItem
 from schemas.predictions import AnalysisResult, SimulationResult, StepState
 from schemas.sources import SourceRecord
 from simulation.goal_model import GoalModelConfig
@@ -30,6 +31,7 @@ STEPS = [
     ("data", "Football data"),
     ("news", "News sources"),
     ("scout", "Agent 4: Data Scout (scraping + web research)"),
+    ("deep", "Deep search: 4 role-based engines (100-300 headlines)"),
     ("researcher", "Agent 1: Statistical Researcher"),
     ("intelligence", "Agent 2: Football Intelligence"),
     ("chief_plan", "Agent 3: assessment and scenarios"),
@@ -116,10 +118,12 @@ class Orchestrator:
         simulate: Callable = run_simulation,
         web=None,
         scout=None,
+        deep=None,
     ):
         self.provider, self.researcher, self.intelligence, self.chief = provider, researcher, intelligence, chief
         self.news, self.store, self.goal_cfg, self.simulate = news, store, goal_cfg or GoalModelConfig(), simulate
         self.web = web  # optional WebResearch
+        self.deep = deep  # optional football_data.deep_search.DeepSearch
         self.scout = scout  # optional football_data.scout.Scout
 
     async def _step(self, progress: Progress, key: str, coro, message: Optional[str] = None):
@@ -193,6 +197,7 @@ class Orchestrator:
 
         progress.start("news")
         progress.start("scout")
+        progress.start("deep")
 
         async def run_scout():
             if self.scout is None:
@@ -203,7 +208,36 @@ class Orchestrator:
                 log.warning("scout failed: %s", exc)
                 return None
 
-        news, scouted = await asyncio.gather(self._fetch_news(ctx), run_scout())
+        async def run_deep():
+            if self.deep is None:
+                return None
+            try:
+                return await asyncio.wait_for(self.deep.run(ctx.match), timeout=90)
+            except Exception as exc:  # noqa: BLE001  deep search is optional
+                log.warning("deep search failed: %s", exc)
+                return exc
+
+        news, scouted, deep_res = await asyncio.gather(self._fetch_news(ctx), run_scout(), run_deep())
+        deep_summary, kept = (deep_res if isinstance(deep_res, tuple) else (None, {}))
+        if deep_summary is not None:
+            by = ", ".join(f"{e.key} {e.found}" for e in deep_summary.engines)
+            progress.done("deep", f"{deep_summary.total} headlines ({by})" + (" - below the 100 target" if deep_summary.below_target else ""))
+            warnings.extend(deep_summary.notes)
+        else:
+            progress.done("deep", "Deep search disabled" if deep_res is None else f"Deep search failed: {getattr(deep_res, 'message', None) or type(deep_res).__name__}")
+        digests = {k: deep_digest(deep_summary, v) for k, v in kept.items()} if deep_summary else {}
+        if deep_summary:  # each agent's own engine feeds it; the digest headlines become citable sources
+            ctx.sources = [*ctx.sources, *[
+                SourceRecord(id=i["id"], name=i["source"], url=next((x.link for x in kept[k] if x.item_id == i["id"]), None),
+                             retrieved_at=now_iso(), reliability=i["reliability"], note=f"deep search / {k}")
+                for k, d in digests.items() for i in d["items"]]]
+            home_n, away_n = ctx.match.home.name, ctx.match.away.name
+            known = {i.item_id for i in news.items}
+            extra = [NewsItem(item_id=i.item_id, team=i.team, team_name={"home": home_n, "away": away_n}.get(i.team, f"{home_n} / {away_n}"),
+                              title=i.title, source=i.source, link=i.link, published_at=i.published_at, age_days=i.age_days,
+                              reliability_class=i.reliability_class)
+                     for i in kept.get("intelligence", [])[:24] if i.item_id not in known]
+            news = news.model_copy(update={"items": [*news.items, *extra]})
         if scouted is not None:
             web_err = next((e for e in news.errors if e.startswith("Web research skipped")), None)
             web_note = web_err or ("web research is disabled" if self.web is None else "web research found no reported absences")
@@ -220,13 +254,13 @@ class Orchestrator:
         quality = ctx.data_quality
         if quality.abstain_recommended:
             return self._abstain(ctx, news, "Not enough reliable data to produce a prediction. " + "; ".join(
-                i.detail for i in quality.issues if i.severity != "info")[:400], progress, warnings)
+                i.detail for i in quality.issues if i.severity != "info")[:400], progress, warnings, deep_search=deep_summary)
 
         progress.start("researcher")
         progress.start("intelligence")
 
         async def run_researcher():
-            r = await self.researcher.run(ctx)
+            r = await self.researcher.run(ctx, digests.get("statistical"))
             progress.done("researcher")
             return r
 
@@ -246,12 +280,12 @@ class Orchestrator:
         try:
             priors = build_priors(ctx)
         except InsufficientDataError as exc:
-            return self._abstain(ctx, news, exc.message, progress, warnings, researcher=research, intelligence=intel)
+            return self._abstain(ctx, news, exc.message, progress, warnings, researcher=research, intelligence=intel, deep_search=deep_summary)
 
-        plan = await self._step(progress, "chief_plan", self.chief.plan(match, research, intel, quality, priors.to_dict()))
+        plan = await self._step(progress, "chief_plan", self.chief.plan(match, research, intel, quality, priors.to_dict(), {k: digests[k] for k in ("tactical", "context") if k in digests} or None))
         if plan.abstain and plan.abstain_reason.strip():
             return self._abstain(ctx, news, f"Chief Predictor abstained: {plan.abstain_reason}", progress, warnings,
-                                 researcher=research, intelligence=intel, chief_plan=plan)
+                                 researcher=research, intelligence=intel, chief_plan=plan, deep_search=deep_summary)
 
         simulation = await self._step(progress, "simulation", asyncio.to_thread(
             self.simulate, priors, plan.adjustments, plan.scenarios, plan.openness_correlation, self.goal_cfg))
@@ -268,4 +302,4 @@ class Orchestrator:
         return AnalysisResult(
             match=match, researcher=research, intelligence=intel, chief_plan=plan, simulation=simulation, prediction=prediction,
             data_quality=quality, sources=ctx.sources, news_items=news.items, context=ViewContext.of(ctx), data_availability=ctx.data_availability,
-            warnings=warnings, models=models, prediction_record=record, generated_at=now_iso())
+            warnings=warnings, models=models, deep_search=deep_summary, prediction_record=record, generated_at=now_iso())

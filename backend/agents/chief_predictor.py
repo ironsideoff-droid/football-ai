@@ -70,10 +70,11 @@ class ChiefPredictorAgent(BaseAgent):
         return {"home": match.home.name, "away": match.away.name, "competition": match.competition, "kickoff_utc": match.utc_date}
 
     async def plan(self, match: MatchSummary, research: ResearcherReport, intel: IntelligenceReport,
-                   quality: Optional[DataQualityReport], priors: dict) -> ChiefPlan:
+                   quality: Optional[DataQualityReport], priors: dict,
+                   deep: Optional[dict] = None) -> ChiefPlan:
         return await self._ask(
             {"match": self._match(match), "statistical_report": digest_research(research), "intelligence_report": digest_intel(intel),
-             "data_quality": _quality(quality), "data_derived_priors": digest_priors(priors)},
+             "data_quality": _quality(quality), "data_derived_priors": digest_priors(priors), "deep_search": deep},
             ChiefPlan, CHIEF_PLAN_SYSTEM, max_tokens=PLAN_MAX_TOKENS, compact_payload=True,
         )
 

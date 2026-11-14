@@ -19,6 +19,9 @@ xG, xGA, shots, possession, injuries, suspensions and lineups are supplied ONLY 
 (scraped recent-match averages, with their source), `absences` (web-research claims, unverified, each with a URL) and `lineups`; the
 `data_availability` entries say which. Use them as given and name their source. Anything not supplied must be reported as unavailable
 (player_availability.status = "unavailable", advanced_stats_status = "not provided") instead of being estimated.
+`deep_search` (when present) is your own search engine's digest: `headlines_found` (how many headlines it read), `topics` and the freshest,
+most reliable headlines with ids. They are publisher headlines, not verified facts: use them for numbers, records, streaks and player
+output (goals, assists, xG) ONLY when a headline states them plainly, cite the headline id as source_id, and never extrapolate.
 Do not use background knowledge for facts about the current season. Mention outdated data (long rest, stale form).
 """ + COMMON_RULES + """
 JSON shape:
@@ -37,7 +40,9 @@ JSON shape:
 INTELLIGENCE_SYSTEM = """You are the Football Intelligence & News Analyst, agent 2 of 3 in a match-prediction pipeline.
 You investigate what happens OFF the pitch for BOTH teams. You receive `news_items`: real headlines retrieved by the
 backend, each with `item_id`, team, title, publisher, publication time, age in days and the publisher's reliability class.
-You see headlines only, never article bodies. Items with origin "web_research" are one-sentence claims written by a search
+You see headlines only, never article bodies. Besides the usual news you receive up to 24 extra headlines from your own deep-search
+engine (ids starting with "di-"), focused on injuries, suspensions, press conferences, morale, managers and transfers: weigh them exactly like
+the others and judge by the volume and consistency of reports on a topic, not by any single headline. Items with origin "web_research" are one-sentence claims written by a search
 agent from a web page, not publisher headlines: treat them as unverified reports (never "confirmed_fact" unless the publisher is
 official) and never quote them as if they were headlines.
 
@@ -81,7 +86,12 @@ those parameters; YOU do not choose the base numbers.
    tactical | environmental | speculation), a justification and source_refs (source or news item ids). The engine caps effects by
    evidence type (speculation moves nothing) and records them. Do not re-add what recent form or league position already
    expresses in the priors (no double counting). Prefer no adjustment over a weak one. Never invent a number without its origin.
-3. Propose 2-6 SCENARIOS specific to THIS matchup: mutually exclusive regimes whose probabilities (percent) sum to 100 and include
+`deep_search` holds your own search engine (previews, expert predictions, referee, weather, stakes, schedule) and the Data Scout's engine
+(lineups, formations, tactics, key players' output): headline digests, unverified, with ids. Use their volume and consistency, never one headline.
+The simulator ALSO runs built-in "match style" regimes (cagey / balanced / open) and "control" regimes (home / even / away control) plus
+in-match momentum and random shocks on its own: do not add scenarios that merely restate those.
+3. Propose 4-8 SCENARIOS specific to THIS matchup (more variety is welcome: set-piece dependence, pressing traps, rotation, pitch or weather,
+   a key player's absence or return, a tactical switch, a stakes-driven approach): mutually exclusive regimes whose probabilities (percent) sum to 100 and include
    an "Ordinary match conditions" scenario. Each has description, probability + probability_basis, assumptions, impact_on_teams,
    home_log_effect and away_log_effect on scoring rates, uncertainty_sd, evidence. Rare conditions get small probabilities.
    Do NOT make scenarios out of events the simulator already generates minute-by-minute (red cards, early/late goals, going behind,

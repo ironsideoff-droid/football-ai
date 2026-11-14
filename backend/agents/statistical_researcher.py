@@ -1,3 +1,5 @@
+from typing import Optional
+
 from agents.base import BaseAgent
 from agents.prompts import STATISTICAL_SYSTEM
 from schemas.agent_reports import ResearcherReport
@@ -13,10 +15,11 @@ class StatisticalResearcherAgent(BaseAgent):
     name = "Statistical Researcher"
     system_prompt = STATISTICAL_SYSTEM
 
-    async def run(self, context: MatchContext) -> ResearcherReport:
+    async def run(self, context: MatchContext, deep: Optional[dict] = None) -> ResearcherReport:
         return await self._ask(
             {
                 "data": context.to_agent_payload(),
+                "deep_search": deep,
                 "sources": source_summary(context),
                 "data_quality": context.data_quality.model_dump(exclude={"components"}) if context.data_quality else None,
             },

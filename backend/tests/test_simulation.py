@@ -317,3 +317,33 @@ def test_number_of_random_calls_does_not_grow_with_number_of_simulations(priors,
             assert monte_carlo.run_simulation(priors, seed=3).n_simulations == n
         calls[n] = holder[0].calls
     assert calls[2_000] == calls[50_000] and calls[50_000] > 0
+
+
+# ---------------------------------------------------------------- variety layer (match styles, control regimes, shocks)
+def test_variety_effects_are_mean_preserving_and_allocated_exactly():
+    from simulation.variety import draw_variety
+    v = draw_variety(np.random.default_rng(3), N_SIMULATIONS, 1.0)
+    assert np.exp(v.eff_h).mean() == pytest.approx(1.0, abs=0.01) and np.exp(v.eff_a).mean() == pytest.approx(1.0, abs=0.01)
+    assert np.bincount(v.style_labels).sum() == N_SIMULATIONS and np.bincount(v.control_labels).sum() == N_SIMULATIONS
+    assert [round(s.probability, 2) for s in v.style_scen] == [0.22, 0.46, 0.24, 0.08]
+    off = draw_variety(np.random.default_rng(3), N_SIMULATIONS, 0.0)
+    assert np.allclose(off.eff_h, 0.0) and np.allclose(off.eff_a, 0.0)
+
+
+def test_variety_widens_outcomes_without_moving_expected_goals(priors):
+    on = run_simulation(priors, seed=5, cfg=GoalModelConfig(variety=True, chaos=1.0))
+    off = run_simulation(priors, seed=5, cfg=GoalModelConfig(variety=False))
+    assert on.avg_total_goals == pytest.approx(off.avg_total_goals, rel=0.04)
+    assert on.goal_distribution["total"][0] > off.goal_distribution["total"][0] or sum(on.goal_distribution["total"][5:]) > sum(off.goal_distribution["total"][5:])
+    assert len(on.match_styles) == 4 and len(on.control_regimes) == 3 and off.match_styles == []
+    assert sum(s.simulated_n for s in on.match_styles) == N_SIMULATIONS
+    cagey, open_ = on.match_styles[0], on.match_styles[2]
+    assert cagey.avg_home_goals + cagey.avg_away_goals < open_.avg_home_goals + open_.avg_away_goals
+    assert on.control_regimes[0].home_win_pct > on.control_regimes[2].home_win_pct
+    for k in ("goalless_draw_pct", "comeback_win_pct", "underdog_win_pct", "five_plus_goals_pct", "key_injury_home_pct"):
+        assert k in on.events
+
+
+def test_variety_runs_are_reproducible_with_a_seed(priors):
+    a, b = run_simulation(priors, seed=9), run_simulation(priors, seed=9)
+    assert (a.home_win_pct, a.avg_total_goals, a.events["comeback_win_pct"]) == (b.home_win_pct, b.avg_total_goals, b.events["comeback_win_pct"])

@@ -19,6 +19,7 @@ from schemas.predictions import SimulationResult
 from simulation.goal_model import GoalModelConfig, simulate_goals
 from simulation.parameter_engine import (LAMBDA_MAX, LAMBDA_MIN, PriorSet, apply_adjustments, effective_correlation,
                                          sample_parameters)
+from simulation.variety import draw_variety
 from simulation.scenario_engine import assign_scenarios, normalize_scenarios, scenario_log_effects
 from simulation.statistics import summarize
 
@@ -49,6 +50,9 @@ def run_simulation(
         labels = assign_scenarios(rng, N_SIMULATIONS, scen)
         eff_h, eff_a = scenario_log_effects(rng, labels, scen)
 
+        variety = draw_variety(rng, N_SIMULATIONS, cfg.chaos) if (cfg.variety and cfg.chaos > 0) else None
+        if variety is not None:
+            eff_h, eff_a = eff_h + variety.eff_h, eff_a + variety.eff_a
         raw_h, raw_a = params["lam_h"] * np.exp(eff_h), params["lam_a"] * np.exp(eff_a)
         clipped = float(np.mean((raw_h < LAMBDA_MIN) | (raw_h > LAMBDA_MAX) | (raw_a < LAMBDA_MIN) | (raw_a > LAMBDA_MAX)))
         lam_h, lam_a = np.clip(raw_h, LAMBDA_MIN, LAMBDA_MAX), np.clip(raw_a, LAMBDA_MIN, LAMBDA_MAX)
@@ -64,7 +68,9 @@ def run_simulation(
             "model": MODEL_NAMES[cfg.model], "seed": seed, "config": cfg.describe() | {"openness_correlation_applied": rho},
             "priors": priors.to_dict(), "applied_adjustments": effects.report, "warnings": warnings,
         }
-        return summarize(sim, params, lam_h, lam_a, labels, scen, meta)
+        if variety is not None:
+            meta["config"] = meta["config"] | {"variety_layer": variety.description}
+        return summarize(sim, params, lam_h, lam_a, labels, scen, meta, variety)
     except SimulationError:
         raise
     except Exception as exc:  # noqa: BLE001

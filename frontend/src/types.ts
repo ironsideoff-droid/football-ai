@@ -61,7 +61,7 @@ export interface Simulation {
   over_1_5_pct: number; over_2_5_pct: number; over_3_5_pct: number; under_2_5_pct: number;
   home_clean_sheet_pct: number; away_clean_sheet_pct: number; top_scorelines: Scoreline[];
   score_matrix_pct: number[][]; goal_distribution: { home: number[]; away: number[]; total: number[] };
-  scenarios: ScenarioResult[]; events: Record<string, any>;
+  scenarios: ScenarioResult[]; match_styles?: ScenarioResult[]; control_regimes?: ScenarioResult[]; events: Record<string, any>;
   uncertainty: { monte_carlo_standard_error_pct: Record<string, number>; xg_home_90pct_interval: number[]; xg_away_90pct_interval: number[]; note: string };
   disclaimer: string;
 }
@@ -84,7 +84,7 @@ export interface SourceRecord { id: string; name: string; url?: string | null; r
 export interface AnalysisResult {
   match: MatchSummary; researcher: ResearcherReport | null; intelligence: IntelligenceReport | null; chief_plan: ChiefPlan | null;
   simulation: Simulation | null; prediction: Prediction | null; abstained: boolean; abstain_reason: string;
-  data_quality: DataQuality | null; context?: ViewContext | null; sources: SourceRecord[]; data_availability: Record<string, string>; warnings: string[];
+  data_quality: DataQuality | null; context?: ViewContext | null; deep_search?: DeepSearchSummary | null; sources: SourceRecord[]; data_availability: Record<string, string>; warnings: string[];
   models: Record<string, string>; prediction_record: { status?: string; created_at?: string; note?: string; reason?: string }; generated_at: string;
 }
 export interface Job {
@@ -106,3 +106,7 @@ export interface Evaluation {
   stored_predictions: number; evaluated: number; tampered_match_ids: number[];
   chief_predictor: EvalReport; simulation_only: EvalReport; baseline_constant_frequencies: EvalReport | null; storage_note: string;
 }
+
+export interface DeepItem { item_id: string; engine: string; topic: string; team: "home" | "away" | "both"; title: string; source: string; link: string; published_at?: string | null; age_days?: number | null; reliability_class: string }
+export interface EngineSummary { key: string; label: string; focus: string; queries: number; failed_queries: number; found: number; topics: Record<string, number> }
+export interface DeepSearchSummary { total: number; minimum_target: number; maximum: number; below_target: boolean; queries: number; failed_queries: number; engines: EngineSummary[]; topics: Record<string, number>; notes: string[]; items: DeepItem[] }

@@ -5,6 +5,7 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel
 
 from schemas.agent_reports import ChiefPlan, ChiefPrediction, IntelligenceReport, ResearcherReport
+from schemas.deep import DeepSearchSummary
 from schemas.match import MatchSummary, ViewContext
 from schemas.news import NewsItem
 from schemas.sources import DataQualityReport, SourceRecord
@@ -69,6 +70,8 @@ class SimulationResult(BaseModel):
     score_matrix_pct: list[list[float]]  # rows = home goals 0..6+, cols = away goals 0..6+
     goal_distribution: dict[str, list[float]]
     scenarios: list[ScenarioResult]
+    match_styles: list[ScenarioResult] = []  # built-in tempo regimes (cagey / balanced / open / chaotic)
+    control_regimes: list[ScenarioResult] = []  # built-in "who controls the game" regimes
     events: dict[str, Any]
     uncertainty: dict[str, Any]
     disclaimer: str
@@ -87,6 +90,7 @@ class AnalysisResult(BaseModel):
     sources: list[SourceRecord] = []
     news_items: list[NewsItem] = []
     context: Optional[ViewContext] = None
+    deep_search: Optional[DeepSearchSummary] = None
     data_availability: dict[str, str] = {}
     warnings: list[str] = []
     models: dict[str, str] = {}

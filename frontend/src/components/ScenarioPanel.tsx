@@ -2,16 +2,15 @@ import type { ScenarioResult } from "../types";
 
 const sign = (v: number) => `${v >= 0 ? "+" : ""}${Math.round(v * 100)}%`;
 
-export default function ScenarioPanel({ scenarios, home, away }: { scenarios: ScenarioResult[]; home: string; away: string }) {
+export default function ScenarioPanel({ scenarios, home, away, title = "Scenarios", intro, compact = false }: { scenarios: ScenarioResult[]; home: string; away: string; title?: string; intro?: string; compact?: boolean }) {
   const ordered = [...scenarios].sort((a, b) => b.assigned_probability_pct - a.assigned_probability_pct);
   return (
     <section className="panel">
-      <h3>Scenarios</h3>
+      <h3>{title}</h3>
       <p className="muted">
-        Each simulated match belongs to exactly one scenario, in proportion to its estimated probability. Scenario effects change the
-        scoring rates only; red cards and goal timing are simulated separately.
+        {intro ?? "Each simulated match belongs to exactly one scenario, in proportion to its estimated probability. Scenario effects change the scoring rates only; red cards and goal timing are simulated separately."}
       </p>
-      <div className="scenarios">
+      <div className={compact ? "scenarios compact" : "scenarios"}>
         {ordered.map((s, i) => (
           <article className="scenario" key={`${s.name}-${i}`}>
             <header>
@@ -33,7 +32,7 @@ export default function ScenarioPanel({ scenarios, home, away }: { scenarios: Sc
               Goals {s.avg_home_goals} – {s.avg_away_goals} · both score {s.btts_pct}% · over 2.5 {s.over_2_5_pct}% · likely scores:{" "}
               {s.top_scorelines.slice(0, 3).map((x) => `${x.score} (${x.pct}%)`).join(", ")}
             </p>
-            {s.assumptions.length > 0 && <ul className="small">{s.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>}
+            {!compact && s.assumptions.length > 0 && <ul className="small">{s.assumptions.map((a) => <li key={a}>{a}</li>)}</ul>}
             {s.flags.map((f) => <p className="warn" key={f}>{f}</p>)}
           </article>
         ))}

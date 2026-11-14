@@ -20,7 +20,7 @@ import numpy as np
 
 from schemas.agent_reports import ScenarioSpec
 
-MAX_SCENARIOS = 8
+MAX_SCENARIOS = 10
 SCENARIO_CAPS = {"statistical": 0.20, "intelligence": 0.10, "tactical": 0.20, "environmental": 0.15, "speculation": 0.05}
 EXPLICIT_EVENT = re.compile(
     r"red[- ]card|sent[- ]off|early goal|late goal|goal in the (first|last)|protect\w* (a |the )?lead|chas\w* (an |the )?equali[sz]er"

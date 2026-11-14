@@ -61,7 +61,7 @@ def scenario_results(scenarios: Sequence[Scenario], labels: np.ndarray, h: np.nd
 
 
 def summarize(sim: dict[str, np.ndarray], params: dict[str, np.ndarray], lam_h: np.ndarray, lam_a: np.ndarray,
-              labels: np.ndarray, scenarios: Sequence[Scenario], meta: dict[str, Any]) -> SimulationResult:
+              labels: np.ndarray, scenarios: Sequence[Scenario], meta: dict[str, Any], variety: Any = None) -> SimulationResult:
     h, a = sim["home"], sim["away"]
     n = int(h.shape[0])
     tot = h + a
@@ -89,6 +89,16 @@ def summarize(sim: dict[str, np.ndarray], params: dict[str, np.ndarray], lam_h: 
         "trailing_at_ht_but_not_losing_pct": pct((((ht_h < ht_a) & (h >= a)) | ((ht_a < ht_h) & (a >= h))).sum(), n),
         "avg_goals_by_15_min_home": np.round(seg_h.mean(0), 3).tolist(), "avg_goals_by_15_min_away": np.round(seg_a.mean(0), 3).tolist(),
     }
+    fav_home = float(lam_h.mean()) >= float(lam_a.mean())
+    fav, dog = (h, a) if fav_home else (a, h)
+    events.update({
+        "goalless_draw_pct": pct(((h == 0) & (a == 0)).sum(), n), "one_goal_margin_pct": pct((np.abs(h - a) == 1).sum(), n),
+        "three_plus_margin_pct": pct((np.abs(h - a) >= 3).sum(), n), "five_plus_goals_pct": pct((tot >= 5).sum(), n),
+        "favourite_side": "home" if fav_home else "away", "underdog_win_pct": pct((dog > fav).sum(), n),
+        "comeback_win_pct": pct((((ht_h < ht_a) & (h > a)) | ((ht_a < ht_h) & (a > h))).sum(), n),
+        "key_injury_home_pct": pct(sim["inj_home"].sum(), n) if "inj_home" in sim else 0.0,
+        "key_injury_away_pct": pct(sim["inj_away"].sum(), n) if "inj_away" in sim else 0.0,
+    })
     pu = {
         "home_xg": dist_summary(lam_h), "away_xg": dist_summary(lam_a),
         **{k: dist_summary(v) for k, v in params.items() if k != "lam_h" and k != "lam_a"},
@@ -103,6 +113,8 @@ def summarize(sim: dict[str, np.ndarray], params: dict[str, np.ndarray], lam_h: 
         away_clean_sheet_pct=pct(np.count_nonzero(h == 0), n), top_scorelines=top_scorelines(h, a),
         score_matrix_pct=np.round(100 * matrix / n, 2).tolist(), goal_distribution=dist,
         scenarios=scenario_results(scenarios, labels, h, a), events=events,
+        match_styles=scenario_results(variety.style_scen, variety.style_labels[idx], h, a) if variety else [],
+        control_regimes=scenario_results(variety.control_scen, variety.control_labels[idx], h, a) if variety else [],
         uncertainty={"monte_carlo_standard_error_pct": se, "outcome_entropy_normalized": round(entropy, 3),
                      "xg_home_90pct_interval": [pu["home_xg"]["p05"], pu["home_xg"]["p95"]],
                      "xg_away_90pct_interval": [pu["away_xg"]["p05"], pu["away_xg"]["p95"]],
