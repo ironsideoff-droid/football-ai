@@ -61,6 +61,13 @@ class GroqClient:
         found = re.search(r"Limit (\d+), Requested (\d+)", text)
         return (int(found.group(1)), int(found.group(2))) if found and "too large" in text.lower() else None
 
+    @staticmethod
+    def _text(resp: httpx.Response) -> str:
+        try:
+            return str(resp.json()["error"]["message"])
+        except Exception:  # noqa: BLE001
+            return resp.text[:300]
+
     async def aclose(self) -> None:
         await self._http.aclose()
 
@@ -100,9 +107,16 @@ class GroqClient:
             if code in (401, 403):
                 raise GroqAuthError(f"The Groq API key for {self.name} was rejected.", agent=self.name)
             if code == 429 or code >= 500:
-                if attempt < self._max_retries:
+                # a tokens-per-minute limit only frees up after the one-minute window, so 429s get more and longer waits than 5xx errors
+                allowed = self._max_retries + (2 if code == 429 else 0)
+                if attempt < allowed:
                     wait = float(resp.headers.get("retry-after", 2 ** (attempt + 1)))
-                    await self._sleep(min(wait, 20))
+                    if code == 429:
+                        m = re.search(r"try again in (?:(\d+)m)?(?:([\d.]+)s)?", self._text(resp), re.I)
+                        if m and (m.group(1) or m.group(2)):
+                            wait = max(wait, 60 * int(m.group(1) or 0) + float(m.group(2) or 0) + 1)
+                        wait = max(wait, 8.0 * (attempt + 1))
+                    await self._sleep(min(wait, 65 if code == 429 else 20))
                     attempt += 1
                     continue
                 if code == 429:

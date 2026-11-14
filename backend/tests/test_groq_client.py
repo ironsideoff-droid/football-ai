@@ -51,7 +51,7 @@ def test_rate_limit_retries_then_fails():
         return httpx.Response(429, headers={"retry-after": "1"})
     with pytest.raises(GroqRateLimitError):
         asyncio.run(client(handler).chat_json("s", "u"))
-    assert len(calls) == 3
+    assert len(calls) == 5  # 1 try + 2 retries + 2 extra for tokens-per-minute limits
 
 
 def test_rate_limit_recovers():
@@ -112,3 +112,10 @@ def test_too_large_request_is_retried_once_with_a_smaller_output_budget():
 def test_input_too_large_even_without_output_gives_a_clear_message():
     with pytest.raises(GroqServiceError, match="per-minute limit is 8000"):
         asyncio.run(client(lambda r: _too_large(8000, 12000)).chat_json("s", "u", max_tokens=3500))
+
+
+def test_rate_limit_waits_for_the_minute_window_named_by_groq():
+    waits, seq = [], iter([httpx.Response(429, json={"error": {"message": "Rate limit reached ... Please try again in 23.5s."}}), ok("{}")])
+    c = GroqClient("Chief Predictor", "k", "m", transport=httpx.MockTransport(lambda r: next(seq)), sleep=lambda s: waits.append(s) or asyncio.sleep(0))
+    assert asyncio.run(c.chat_json("s", "u")) == {}
+    assert waits and 24 <= waits[0] <= 65
