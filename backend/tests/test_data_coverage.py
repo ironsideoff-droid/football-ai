@@ -236,40 +236,45 @@ def test_quality_counts_scraped_data_and_names_what_is_still_missing():
     assert not better.components["lineups"] and any("Confirmed lineups: not found" in i.detail for i in better.issues)
 
 
-# ---------------------------------------------------------------- fan posts (Reddit, official API)
-def _reddit_listing(posts):
-    return {"data": {"children": [{"data": p} for p in posts]}}
-
-
-def _post(title, score=500, **kw):
-    return {"title": title, "score": score, "permalink": f"/r/soccer/comments/{abs(hash(title)) % 10**6}/x/", "subreddit_name_prefixed": "r/soccer",
-            "created_utc": 1_794_000_000, **kw}
+# ---------------------------------------------------------------- fan posts (X API v2)
+def _x_post(text, likes=50, pid="1", **kw):
+    return {"id": pid, "text": text, "created_at": "2026-11-12T10:00:00.000Z", "public_metrics": {"like_count": likes, "retweet_count": 2, "quote_count": 0}, **kw}
 
 
 def test_fan_posts_are_filtered_and_labelled_low_reliability():
     from football_data.fans import parse_posts
-    data = _reddit_listing([
-        _post("Arsenal fans: is Saka fit for Sunday?"), _post("Chelsea transfer rumours", 900),  # other team
-        _post("Arsenal match thread", 3), _post("Arsenal NSFW", 900, over_18=True), _post("Arsenal pinned", 900, stickied=True),
-        _post("Arsenal fans: is Saka fit for Sunday?")])  # duplicate
+    data = {"data": [
+        _x_post("Is Saka fit for Arsenal on Sunday? https://t.co/abc", pid="1"), _x_post("Chelsea team news", pid="2"),  # other team
+        _x_post("Arsenal preview", likes=1, pid="3"), _x_post("Arsenal giveaway promo code", pid="4"),
+        _x_post("Arsenal #a #b #c #d", pid="5"), _x_post("Arsenal explicit", pid="6", possibly_sensitive=True),
+        _x_post("Is Saka fit for Arsenal on Sunday?", pid="7")]}  # duplicate text
     items = parse_posts(data, "Arsenal FC", "home")
-    assert [i.title for i in items] == ["Arsenal fans: is Saka fit for Sunday?"]
-    assert items[0].origin == "fan_social" and items[0].reliability_class == "low" and items[0].source.startswith("r/soccer")
-    assert items[0].link.startswith("https://www.reddit.com/r/soccer/")
+    assert [i.title for i in items] == ["Is Saka fit for Arsenal on Sunday?"]
+    assert items[0].origin == "fan_social" and items[0].reliability_class == "low" and items[0].source == "X · 50 likes"
+    assert items[0].link == "https://x.com/i/web/status/1"
 
 
-def test_reddit_fan_feed_authenticates_and_survives_refusal():
-    from football_data.fans import FanFeedError, RedditFans
+def test_x_fan_feed_caches_respects_budget_and_reports_refusals():
+    from football_data.fans import FanFeedError, XFans
     calls = []
 
     def ok(req: httpx.Request) -> httpx.Response:
-        calls.append(req.url.host)
-        if req.url.host == "www.reddit.com":
-            return httpx.Response(200, json={"access_token": "t", "expires_in": 3600})
-        return httpx.Response(200, json=_reddit_listing([_post("Arsenal vs Chelsea preview"), _post("Chelsea injury news")]))
+        calls.append(req)
+        team = "Arsenal" if "Arsenal" in req.url.params["query"] else "Chelsea"
+        return httpx.Response(200, json={"data": [_x_post(f"{team} injury news", pid=team)]})
 
     m = _make_match("PL", "Arsenal FC", "Chelsea FC")
-    items = asyncio.run(RedditFans("id", "secret", transport=httpx.MockTransport(ok)).fetch(m))
-    assert {i.team for i in items} == {"home", "away"} and calls[0] == "www.reddit.com"
-    with pytest.raises(FanFeedError):
-        asyncio.run(RedditFans("id", "bad", transport=httpx.MockTransport(lambda r: httpx.Response(401, json={}))).fetch(m))
+    f = XFans("tok", daily_post_budget=40, transport=httpx.MockTransport(ok))
+    items = asyncio.run(f.fetch(m))
+    assert {i.team for i in items} == {"home", "away"} and len(calls) == 2
+    assert calls[0].headers["authorization"] == "Bearer tok" and "expansions" not in str(calls[0].url)  # the author is never requested
+    asyncio.run(f.fetch(m))
+    assert len(calls) == 2  # served from the cache: no second bill
+    m2 = _make_match("PL", "Arsenal FC", "Chelsea FC")
+    m2.id = 2
+    tight = XFans("tok", daily_post_budget=5, transport=httpx.MockTransport(ok))
+    with pytest.raises(FanFeedError, match="budget"):
+        asyncio.run(tight.fetch(m2))
+    for status, word in ((401, "credentials"), (402, "balance"), (429, "rate limit")):
+        with pytest.raises(FanFeedError, match=word):
+            asyncio.run(XFans("t", transport=httpx.MockTransport(lambda r, s=status: httpx.Response(s, json={}))).fetch(m2))

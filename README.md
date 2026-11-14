@@ -188,9 +188,11 @@ These are unofficial endpoints and their format can change without notice; a sou
 ("Agent 4: Data Scout") and the analysis continues without it. Check each site's terms of use before running this commercially.
 Set `SCOUT_ENABLED=false` to turn scraping off.
 
-### Fan posts (optional)
+### Fan posts from X (optional)
 
-With `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` set, the news step also reads the titles of the week's most upvoted public Reddit posts about each
-team (official API, no usernames or comments stored). They enter the analysis as `origin = "fan_social"`, reliability "low": the Football
-Intelligence agent may only describe mood and talking points from them, never injuries, lineups or results, and they cannot move the prediction alone.
-X, Instagram, TikTok and Facebook are not used (no free official API; scraping is blocked and against their terms).
+With `X_BEARER_TOKEN` set, the news step also reads the week's most engaged public X posts about each team (official API v2 recent search;
+no author is requested or stored). They enter the analysis as `origin = "fan_social"`, reliability "low": the Football Intelligence agent may only
+describe mood and talking points from them, never injuries, lineups or results, and they cannot move the prediction alone.
+X bills per post returned, so results are cached 30 minutes per match, at most 10 posts are requested per team, and `X_DAILY_POST_BUDGET`
+(default 600 posts, about US$3 per day) stops further calls for the rest of the UTC day. Also set a spending limit in the X developer console.
+Instagram, TikTok and Facebook are not used (no usable free official API; scraping is blocked and against their terms).

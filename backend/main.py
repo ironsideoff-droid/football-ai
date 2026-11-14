@@ -19,7 +19,7 @@ from config import AGENT_NAMES, Settings, load_settings
 from billing.accounts import Accounts, User, is_active, is_admin
 from billing.stripe_service import Billing
 from errors import AppError, AuthRequiredError, ConfigError, SubscriptionRequiredError
-from football_data.fans import RedditFans
+from football_data.fans import XFans
 from football_data.scout import Scout
 from football_data.provider import FootballDataOrgProvider, FootballProvider
 from evaluation import backtesting, metrics
@@ -93,10 +93,10 @@ def create_app(
         return state["web"]
 
     def get_fans():
-        if not (settings.reddit_client_id and settings.reddit_client_secret):
+        if not settings.x_bearer_token:
             return None
         if state.get("fans") is None:
-            state["fans"] = RedditFans(settings.reddit_client_id, settings.reddit_client_secret)
+            state["fans"] = XFans(settings.x_bearer_token, settings.x_daily_post_budget)
         return state["fans"]
 
     def get_scout():
@@ -170,7 +170,7 @@ def create_app(
             "news_enabled": settings.news_enabled,
             "goal_model": settings.goal_model,
             "scout": {"enabled": settings.scout_enabled},
-            "fan_posts": {"enabled": bool(settings.reddit_client_id and settings.reddit_client_secret)},
+            "fan_posts": {"enabled": bool(settings.x_bearer_token)},
             "web_research": {"enabled": settings.web_research, "model": settings.web_research_model, "own_key": bool(settings.web_research_key)},
         }
 
