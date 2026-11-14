@@ -179,18 +179,27 @@ class EspnScraper:
 
     async def _json(self, url: str, params: Optional[dict] = None) -> dict:
         r = await self.http.get(url, params=params)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            raise httpx.HTTPError(f"HTTP {r.status_code} from {r.request.url.path}?{r.request.url.query.decode()[:60]} - {r.text[:100]}")
         return r.json()
 
     async def find_event(self, slug: str, match: MatchSummary) -> Optional[tuple[str, dict]]:
         ko = datetime.fromisoformat(match.utc_date.replace("Z", "+00:00"))
-        rng = f"{(ko - timedelta(days=1)):%Y%m%d}-{(ko + timedelta(days=1)):%Y%m%d}"
-        data = await self._json(f"{ESPN}/{slug}/scoreboard", {"dates": rng, "limit": 200})
-        for ev in data.get("events") or []:
-            cs = _comp(ev).get("competitors") or []
-            names = {c.get("homeAway"): (_team_of(c).get("displayName") or "") for c in cs}
-            if same_team(names.get("home", ""), match.home.name) and same_team(names.get("away", ""), match.away.name):
-                return str(ev.get("id")), {c.get("homeAway"): str(_team_of(c).get("id")) for c in cs}
+        last: Optional[Exception] = None
+        for delta in (0, -1, 1):  # kickoff day first; ESPN dates by local time, so also try the neighbours
+            day = f"{(ko + timedelta(days=delta)):%Y%m%d}"
+            try:
+                data = await self._json(f"{ESPN}/{slug}/scoreboard", {"dates": day})
+            except httpx.HTTPError as exc:
+                last = exc
+                continue
+            for ev in data.get("events") or []:
+                cs = _comp(ev).get("competitors") or []
+                names = {c.get("homeAway"): (_team_of(c).get("displayName") or "") for c in cs}
+                if same_team(names.get("home", ""), match.home.name) and same_team(names.get("away", ""), match.away.name):
+                    return str(ev.get("id")), {c.get("homeAway"): str(_team_of(c).get("id")) for c in cs}
+        if last is not None:
+            raise last
         return None
 
     async def recent_stats(self, slug: str, team_id: str, before: datetime, team_name: str) -> Optional[TeamAdvanced]:
@@ -361,7 +370,7 @@ class Scout:
             try:
                 await asyncio.wait_for(fn(), timeout=35)
             except Exception as exc:  # noqa: BLE001  every source is optional
-                rep.notes[name] = f"failed: {type(exc).__name__}: {str(exc)[:120]}"
+                rep.notes[name] = f"failed: {type(exc).__name__}: {str(exc)[:200]}"
                 log.warning("scout source %s failed: %s", name, exc)
 
         # understat merges into espn's records, so run espn first, then understat
