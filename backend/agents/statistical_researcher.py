@@ -23,5 +23,5 @@ class StatisticalResearcherAgent(BaseAgent):
                 "sources": source_summary(context),
                 "data_quality": context.data_quality.model_dump(exclude={"components"}) if context.data_quality else None,
             },
-            ResearcherReport,
+            ResearcherReport, compact_payload=True,
         )

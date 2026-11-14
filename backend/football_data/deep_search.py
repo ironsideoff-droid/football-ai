@@ -215,5 +215,5 @@ def digest(summary: DeepSearchSummary, items: list[DeepItem], limit: int = 24) -
     for i in items:
         topics[i.topic] = topics.get(i.topic, 0) + 1
     return {"headlines_found": len(items), "topics": topics,
-            "items": [{"id": i.item_id, "team": i.team, "topic": i.topic, "title": i.title, "source": i.source, "age_days": i.age_days,
-                       "reliability": i.reliability_class} for i in items[:limit]]}
+            "items": [{"id": i.item_id, "topic": i.topic, "title": i.title[:110], "source": i.source[:30], "reliability": i.reliability_class}
+                      for i in items[:limit]]}

@@ -19,7 +19,7 @@ def test_statistical_researcher_gets_real_data_sources_and_quality(context):
     report = asyncio.run(StatisticalResearcherAgent(fake).run(context))
     system, user = fake.calls[0]
     assert report.data_quality.level == "medium"
-    assert "data_quality" in user and '"sources"' in user and "crest" not in user and "rest_days" in user
+    assert "data_quality" in user and "crest" not in user and "rest_days" in user
     assert "Never invent" in system and "xG" in system
 
 

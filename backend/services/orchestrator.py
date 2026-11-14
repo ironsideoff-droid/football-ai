@@ -38,6 +38,8 @@ STEPS = [
     ("simulation", f"Monte Carlo: {N_SIMULATIONS:,} simulations"),
     ("chief_final", "Agent 3: final prediction"),
 ]
+# headlines per agent digest: the free-tier models allow only ~8,000 tokens per minute per request, output included
+DIGEST_LIMITS = {"statistical": 10, "intelligence": 14, "tactical": 8, "context": 8}
 CONFIDENCE_CAP_BASE = 0.35  # confidence score can never exceed 100 * (0.35 + data-quality score)
 
 
@@ -225,7 +227,7 @@ class Orchestrator:
             warnings.extend(deep_summary.notes)
         else:
             progress.done("deep", "Deep search disabled" if deep_res is None else f"Deep search failed: {getattr(deep_res, 'message', None) or type(deep_res).__name__}")
-        digests = {k: deep_digest(deep_summary, v) for k, v in kept.items()} if deep_summary else {}
+        digests = {k: deep_digest(deep_summary, v, DIGEST_LIMITS[k]) for k, v in kept.items()} if deep_summary else {}
         if deep_summary:  # each agent's own engine feeds it; the digest headlines become citable sources
             ctx.sources = [*ctx.sources, *[
                 SourceRecord(id=i["id"], name=i["source"], url=next((x.link for x in kept[k] if x.item_id == i["id"]), None),
@@ -236,7 +238,7 @@ class Orchestrator:
             extra = [NewsItem(item_id=i.item_id, team=i.team, team_name={"home": home_n, "away": away_n}.get(i.team, f"{home_n} / {away_n}"),
                               title=i.title, source=i.source, link=i.link, published_at=i.published_at, age_days=i.age_days,
                               reliability_class=i.reliability_class)
-                     for i in kept.get("intelligence", [])[:24] if i.item_id not in known]
+                     for i in kept.get("intelligence", [])[:DIGEST_LIMITS["intelligence"]] if i.item_id not in known]
             news = news.model_copy(update={"items": [*news.items, *extra]})
         if scouted is not None:
             web_err = next((e for e in news.errors if e.startswith("Web research skipped")), None)

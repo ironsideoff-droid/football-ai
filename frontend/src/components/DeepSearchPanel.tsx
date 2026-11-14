@@ -46,7 +46,7 @@ export default function DeepSearchPanel({ deep, home, away }: { deep: DeepSearch
       </div>
       <p className="muted small">
         The language models cannot read hundreds of headlines inside their token limits, so each agent receives a digest of its own engine (topic counts and
-        its 24 freshest, most reliable headlines). Headlines are not verified facts.
+        its freshest, most reliable 8–14 headlines). Headlines are not verified facts.
       </p>
       <details>
         <summary>All {items.length} headlines{engine !== "all" ? ` · ${ENGINE[engine]}` : ""}</summary>

@@ -258,7 +258,7 @@ def test_deep_search_collects_per_engine_dedupes_and_caps_at_300():
     assert all(e.found == PER_ENGINE_CAP for e in summary.engines) and summary.queries > 60
     assert len({i.title for i in summary.items}) == 300  # no duplicates across engines
     d = digest(summary, kept["tactical"])
-    assert d["headlines_found"] == 75 and len(d["items"]) == 24 and d["items"][0]["id"].startswith("dt-")
+    assert d["headlines_found"] == 75 and len(d["items"]) == 24 and "age_days" not in d["items"][0] and d["items"][0]["id"].startswith("dt-")
 
 
 def test_deep_search_reports_a_short_result_honestly_and_survives_failures():
