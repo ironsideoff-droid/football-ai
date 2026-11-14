@@ -292,3 +292,23 @@ def test_scout_data_reaches_the_result_and_scout_failure_never_stops_the_analysi
 
     bad = asyncio.run(build(context, news_bundle, scout=Scout(exc=RuntimeError("blocked"))).analyze(100))
     assert not bad.abstained and bad.context.lineups is None
+
+
+def test_fan_posts_join_the_news_and_their_failure_never_stops_the_analysis(context, news_bundle):
+    from schemas.news import NewsItem
+
+    class Fans:
+        def __init__(self, exc=None):
+            self.exc = exc
+
+        async def fetch(self, match):
+            if self.exc:
+                raise self.exc
+            return [NewsItem(item_id="fh-1", team="home", team_name="Home FC", title="Fans debate the keeper", source="r/soccer · 300 upvotes",
+                             link="https://www.reddit.com/r/soccer/x", reliability_class="low", origin="fan_social")]
+
+    o = build(context, news_bundle, fans=Fans())
+    assert [i.item_id for i in asyncio.run(o._fetch_news(context)).items] == ["h-1", "fh-1"]
+    o2 = build(context, news_bundle, fans=Fans(RuntimeError("down")))
+    b2 = asyncio.run(o2._fetch_news(context))
+    assert [i.item_id for i in b2.items] == ["h-1"] and any("Fan posts skipped" in e for e in b2.errors)

@@ -234,3 +234,42 @@ def test_quality_counts_scraped_data_and_names_what_is_still_missing():
     better = assess_quality(ctx)
     assert better.score > base.score and better.components["xg"] and better.components["injuries_suspensions"]
     assert not better.components["lineups"] and any("Confirmed lineups: not found" in i.detail for i in better.issues)
+
+
+# ---------------------------------------------------------------- fan posts (Reddit, official API)
+def _reddit_listing(posts):
+    return {"data": {"children": [{"data": p} for p in posts]}}
+
+
+def _post(title, score=500, **kw):
+    return {"title": title, "score": score, "permalink": f"/r/soccer/comments/{abs(hash(title)) % 10**6}/x/", "subreddit_name_prefixed": "r/soccer",
+            "created_utc": 1_794_000_000, **kw}
+
+
+def test_fan_posts_are_filtered_and_labelled_low_reliability():
+    from football_data.fans import parse_posts
+    data = _reddit_listing([
+        _post("Arsenal fans: is Saka fit for Sunday?"), _post("Chelsea transfer rumours", 900),  # other team
+        _post("Arsenal match thread", 3), _post("Arsenal NSFW", 900, over_18=True), _post("Arsenal pinned", 900, stickied=True),
+        _post("Arsenal fans: is Saka fit for Sunday?")])  # duplicate
+    items = parse_posts(data, "Arsenal FC", "home")
+    assert [i.title for i in items] == ["Arsenal fans: is Saka fit for Sunday?"]
+    assert items[0].origin == "fan_social" and items[0].reliability_class == "low" and items[0].source.startswith("r/soccer")
+    assert items[0].link.startswith("https://www.reddit.com/r/soccer/")
+
+
+def test_reddit_fan_feed_authenticates_and_survives_refusal():
+    from football_data.fans import FanFeedError, RedditFans
+    calls = []
+
+    def ok(req: httpx.Request) -> httpx.Response:
+        calls.append(req.url.host)
+        if req.url.host == "www.reddit.com":
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 3600})
+        return httpx.Response(200, json=_reddit_listing([_post("Arsenal vs Chelsea preview"), _post("Chelsea injury news")]))
+
+    m = _make_match("PL", "Arsenal FC", "Chelsea FC")
+    items = asyncio.run(RedditFans("id", "secret", transport=httpx.MockTransport(ok)).fetch(m))
+    assert {i.team for i in items} == {"home", "away"} and calls[0] == "www.reddit.com"
+    with pytest.raises(FanFeedError):
+        asyncio.run(RedditFans("id", "bad", transport=httpx.MockTransport(lambda r: httpx.Response(401, json={}))).fetch(m))

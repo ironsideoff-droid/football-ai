@@ -19,6 +19,7 @@ from config import AGENT_NAMES, Settings, load_settings
 from billing.accounts import Accounts, User, is_active, is_admin
 from billing.stripe_service import Billing
 from errors import AppError, AuthRequiredError, ConfigError, SubscriptionRequiredError
+from football_data.fans import RedditFans
 from football_data.scout import Scout
 from football_data.provider import FootballDataOrgProvider, FootballProvider
 from evaluation import backtesting, metrics
@@ -91,6 +92,13 @@ def create_app(
             state["web"] = WebResearch(key, settings.web_research_model, settings.groq_base_url)
         return state["web"]
 
+    def get_fans():
+        if not (settings.reddit_client_id and settings.reddit_client_secret):
+            return None
+        if state.get("fans") is None:
+            state["fans"] = RedditFans(settings.reddit_client_id, settings.reddit_client_secret)
+        return state["fans"]
+
     def get_scout():
         if not settings.scout_enabled:
             return None
@@ -117,6 +125,7 @@ def create_app(
                 store=store,
                 web=get_web(),
                 scout=get_scout(),
+                fans=get_fans(),
                 goal_cfg=GoalModelConfig(model=settings.goal_model, dc_rho=settings.dc_rho, bp_share=settings.bp_share),  # type: ignore[arg-type]
             )
         return state["orchestrator"]
@@ -132,6 +141,8 @@ def create_app(
             await state["news"].aclose()
         if state.get("web") is not None:
             await state["web"].aclose()
+        if state.get("fans") is not None:
+            await state["fans"].aclose()
         if state.get("scout") is not None:
             await state["scout"].aclose()
         await accounts.aclose()
@@ -159,6 +170,7 @@ def create_app(
             "news_enabled": settings.news_enabled,
             "goal_model": settings.goal_model,
             "scout": {"enabled": settings.scout_enabled},
+            "fan_posts": {"enabled": bool(settings.reddit_client_id and settings.reddit_client_secret)},
             "web_research": {"enabled": settings.web_research, "model": settings.web_research_model, "own_key": bool(settings.web_research_key)},
         }
 

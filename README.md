@@ -187,3 +187,10 @@ Fills gaps football-data.org leaves open, and always shows where each number cam
 These are unofficial endpoints and their format can change without notice; a source that fails is reported in the progress panel
 ("Agent 4: Data Scout") and the analysis continues without it. Check each site's terms of use before running this commercially.
 Set `SCOUT_ENABLED=false` to turn scraping off.
+
+### Fan posts (optional)
+
+With `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` set, the news step also reads the titles of the week's most upvoted public Reddit posts about each
+team (official API, no usernames or comments stored). They enter the analysis as `origin = "fan_social"`, reliability "low": the Football
+Intelligence agent may only describe mood and talking points from them, never injuries, lineups or results, and they cannot move the prediction alone.
+X, Instagram, TikTok and Facebook are not used (no free official API; scraping is blocked and against their terms).

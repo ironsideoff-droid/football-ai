@@ -116,10 +116,12 @@ class Orchestrator:
         simulate: Callable = run_simulation,
         web=None,
         scout=None,
+        fans=None,
     ):
         self.provider, self.researcher, self.intelligence, self.chief = provider, researcher, intelligence, chief
         self.news, self.store, self.goal_cfg, self.simulate = news, store, goal_cfg or GoalModelConfig(), simulate
         self.web = web  # optional WebResearch
+        self.fans = fans  # optional football_data.fans.RedditFans
         self.scout = scout  # optional football_data.scout.Scout
 
     async def _step(self, progress: Progress, key: str, coro, message: Optional[str] = None):
@@ -159,6 +161,15 @@ class Orchestrator:
                 bundle.provider = f"{bundle.provider} + web research".strip(" +")
             except Exception as exc:  # noqa: BLE001
                 bundle.errors.append(f"Web research skipped: {getattr(exc, 'message', None) or type(exc).__name__}")
+        if self.fans is not None:  # fan chatter: low reliability, optional, never stops the analysis
+            bundle = bundle.model_copy(update={"items": list(bundle.items), "errors": list(bundle.errors)})
+            try:
+                posts = await asyncio.wait_for(self.fans.fetch(ctx.match), timeout=30)
+                bundle.items = [*bundle.items, *posts]
+                if bundle.status in ("unavailable", "disabled") and posts:
+                    bundle.status = "partial"
+            except Exception as exc:  # noqa: BLE001
+                bundle.errors.append(f"Fan posts skipped: {getattr(exc, 'message', None) or type(exc).__name__}")
         return bundle
 
     def _abstain(self, ctx: MatchContext, news: NewsBundle, reason: str, progress: Progress, warnings: list[str], **parts) -> AnalysisResult:

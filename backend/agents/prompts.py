@@ -40,6 +40,9 @@ backend, each with `item_id`, team, title, publisher, publication time, age in d
 You see headlines only, never article bodies. Items with origin "web_research" are one-sentence claims written by a search
 agent from a web page, not publisher headlines: treat them as unverified reports (never "confirmed_fact" unless the publisher is
 official) and never quote them as if they were headlines.
+Items with origin "fan_social" are titles of public Reddit posts by fans: opinion, mood and rumour. Use them only to describe the
+mood or talking points around a team, give every finding from them claim_type "opinion" or "rumour" with low confidence, never treat them as
+evidence of injuries, lineups or results, and never let them move a prediction on their own.
 
 For every finding you MUST reference the `item_id` it comes from. Do not create findings without an item. The backend
 attaches source, link and publication time itself; do not copy or invent them.
