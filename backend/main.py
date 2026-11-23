@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,9 +16,7 @@ from agents.chief_predictor import ChiefPredictorAgent
 from agents.football_intelligence import FootballIntelligenceAgent
 from agents.statistical_researcher import StatisticalResearcherAgent
 from config import AGENT_NAMES, Settings, load_settings
-from billing.accounts import Accounts, User, is_active, is_admin
-from billing.stripe_service import Billing
-from errors import AppError, AuthRequiredError, ConfigError, SubscriptionRequiredError
+from errors import AppError, ConfigError
 from football_data.deep_search import DeepSearch
 from football_data.scout import Scout
 from football_data.provider import FootballDataOrgProvider, FootballProvider
@@ -41,32 +39,11 @@ def create_app(
     provider: Optional[FootballProvider] = None,
     orchestrator: Optional[Orchestrator] = None,
     store: Optional[PredictionStore] = None,
-    accounts: Optional[Accounts] = None,
 ) -> FastAPI:
     settings = settings or load_settings()
     store = store or PredictionStore(settings.predictions_dir)
     state: dict = {"provider": provider, "orchestrator": orchestrator, "clients": [], "news": None}
     jobs = JobStore()
-    accounts = accounts or Accounts(settings)
-    billing = Billing(settings, accounts)
-
-    async def current_user(request: Request) -> User:
-        if settings.auth_disabled:
-            return User(id="local-dev", email="local@dev")
-        header = request.headers.get("authorization", "")
-        if not header.lower().startswith("bearer ") or len(header) < 20:
-            raise AuthRequiredError("Please sign in to continue.")
-        return await accounts.verify(header[7:].strip())
-
-    async def subscriber(user: User = Depends(current_user)) -> User:
-        if settings.auth_disabled or is_admin(user, settings):
-            return user
-        if not is_active(await accounts.get_subscription(user)):
-            raise SubscriptionRequiredError("An active subscription is required.")
-        return user
-
-    def origin(request: Request) -> str:
-        return request.headers.get("origin") or str(request.base_url).rstrip("/")
 
     def get_provider() -> FootballProvider:
         if state["provider"] is None:
@@ -145,7 +122,6 @@ def create_app(
             await state["deep"].aclose()
         if state.get("scout") is not None:
             await state["scout"].aclose()
-        await accounts.aclose()
 
     app = FastAPI(title="TACTIQ", lifespan=lifespan)
     app.add_middleware(
@@ -174,43 +150,8 @@ def create_app(
             "web_research": {"enabled": settings.web_research, "model": settings.web_research_model, "own_key": bool(settings.web_research_key)},
         }
 
-    @app.get("/api/config")
-    async def public_config():
-        return {
-            "auth_disabled": settings.auth_disabled,
-            "supabase_url": settings.supabase_url, "supabase_anon_key": settings.supabase_anon_key,
-            "price": {"amount": settings.price_cents / 100, "display_amount": settings.display_price_cents / 100, "currency": settings.price_currency.upper(), "interval": "month"},
-        }
-
-    @app.get("/api/me")
-    async def me(user: User = Depends(current_user)):
-        admin = is_admin(user, settings)
-        sub = await accounts.get_subscription(user) if not settings.auth_disabled else {"status": "active"}
-        return {"email": user.email, "is_admin": admin, "subscription": {k: v for k, v in sub.items() if k != "stripe_customer_id"},
-                "subscribed": admin or is_active(sub), "has_billing_account": bool(sub.get("stripe_customer_id"))}
-
-    @app.post("/api/billing/checkout")
-    async def billing_checkout(request: Request, user: User = Depends(current_user)):
-        if is_admin(user, settings) or is_active(await accounts.get_subscription(user)):
-            raise HTTPException(status_code=409, detail="You already have full access.")
-        return {"url": await billing.checkout_url(user, origin(request))}
-
-    @app.post("/api/billing/portal")
-    async def billing_portal(request: Request, user: User = Depends(current_user)):
-        return {"url": await billing.portal_url(user, origin(request))}
-
-    @app.post("/api/billing/sync")
-    async def billing_sync(user: User = Depends(current_user)):
-        sub = await billing.sync(user)
-        return {"subscribed": is_active(sub), "status": sub.get("status")}
-
-    @app.post("/api/billing/webhook")
-    async def billing_webhook(request: Request):
-        outcome = await billing.handle_webhook(await request.body(), request.headers.get("stripe-signature"))
-        return {"received": True, "outcome": outcome}
-
     @app.get("/api/fixtures")
-    async def fixtures(days: int = Query(14, ge=1, le=30), competitions: Optional[str] = None, _: User = Depends(subscriber)):
+    async def fixtures(days: int = Query(14, ge=1, le=30), competitions: Optional[str] = None):
         today = datetime.now(timezone.utc).date()
         matches = await get_provider().list_fixtures(
             today.isoformat(), (today + timedelta(days=days)).isoformat(), competitions
@@ -218,21 +159,21 @@ def create_app(
         return {"matches": [m.model_dump() for m in matches]}
 
     @app.get("/api/matches/{match_id}")
-    async def match_detail(match_id: int, _: User = Depends(subscriber)):
+    async def match_detail(match_id: int):
         return (await get_provider().get_match_context(match_id)).model_dump()
 
     @app.post("/api/analyze")
-    async def analyze(body: AnalyzeRequest, _: User = Depends(subscriber)):
+    async def analyze(body: AnalyzeRequest):
         result = await get_orchestrator().analyze(body.match_id)
         return result.model_dump()
 
     @app.post("/api/analyze/start", status_code=202)
-    async def analyze_start(body: AnalyzeRequest, _: User = Depends(subscriber)):
+    async def analyze_start(body: AnalyzeRequest):
         job = jobs.start(get_orchestrator(), body.match_id)
         return {"job_id": job.id}
 
     @app.get("/api/jobs/{job_id}")
-    async def job_status(job_id: str, _: User = Depends(subscriber)):
+    async def job_status(job_id: str):
         job = jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job id.")
@@ -248,7 +189,7 @@ def create_app(
                 for r in rows]
 
     @app.get("/api/evaluation")
-    async def evaluation(_: User = Depends(subscriber)):
+    async def evaluation():
         rows = store.joined()
         preds = store.predictions()
         freq = None
@@ -263,7 +204,7 @@ def create_app(
         }
 
     @app.post("/api/evaluation/refresh")
-    async def evaluation_refresh(_: User = Depends(subscriber)):
+    async def evaluation_refresh():
         recorded = []
         for p in store.predictions():
             rec = p["record"]
@@ -282,11 +223,11 @@ def create_app(
         return {"results_recorded": recorded}
 
     @app.get("/api/predictions")
-    async def predictions(_: User = Depends(subscriber)):
+    async def predictions():
         return {"predictions": [{k: v for k, v in p["record"].items() if k != "score_matrix"} for p in store.predictions()]}
 
     @app.get("/api/backtest")
-    async def backtest(competition: str = Query("PL", min_length=2, max_length=8), _: User = Depends(subscriber)):
+    async def backtest(competition: str = Query("PL", min_length=2, max_length=8)):
         matches = await get_provider().get_competition_results(competition.upper())
         report = await asyncio.to_thread(backtesting.walk_forward, matches)
         report["competition"] = competition.upper()

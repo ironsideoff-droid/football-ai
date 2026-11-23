@@ -64,9 +64,3 @@ class StoreError(AppError):
 
 class ImmutablePredictionError(AppError):
     status_code, code = 409, "prediction_immutable"
-
-class AuthRequiredError(AppError):
-    status_code, code = 401, "auth_required"
-
-class SubscriptionRequiredError(AppError):
-    status_code, code = 402, "subscription_required"
